@@ -1,0 +1,8 @@
+pandas
+openpyxl
+gradio
+python-dotenv
+playwright
+langchain-openai
+nltk
+requests
