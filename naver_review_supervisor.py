@@ -232,18 +232,16 @@ class NaverReviewSupervisor:
         except Exception as e:
             yield f"OpenAI API 2차 요약 중 오류가 발생했습니다: {e}"
 
-    async def get_review_summary_and_tips(self, festival_name, num_reviews=5):
-        if not self.llm:
-            return "LLM이 초기화되지 않아 후기 요약/꿀팁 기능을 사용할 수 없습니다. OPENAI_API_KEY를 확인해주세요.", ""
+    async def get_review_summary_and_tips(self, festival_name, num_reviews=5, return_full_text=False, return_meta=False):
+        if not self.llm and not return_full_text:
+            return "LLM이 초기화되지 않아 후기 요약/꿀팁 기능을 사용할 수 없습니다. OPENAI_API_KEY를 확인해주세요.", []
 
         print(f"Searching Naver blogs for reviews of '{festival_name}'...")
         blog_results_meta = search_naver_blog(festival_name + " 축제 후기", display=num_reviews)
         
         if not blog_results_meta:
-            return "Naver 후기를 찾을 수 없습니다.", ""
+            return "Naver 후기를 찾을 수 없습니다.", []
 
-        # Scrape full content for each blog
-        scraped_contents = []
         tasks = []
         for review_meta in blog_results_meta:
             link = review_meta.get("link")
@@ -257,24 +255,78 @@ class NaverReviewSupervisor:
         reviews_with_content = []
         for i, (content, _) in enumerate(scraped_results):
             if content and "본문 내용을 찾을 수 없습니다" not in content and "페이지에 접근하는 중 오류" not in content:
-                reviews_with_content.append({"title": blog_results_meta[i].get("title", ""), "content": content})
+                reviews_with_content.append({"title": blog_results_meta[i].get("title", ""), "content": content, "link": blog_results_meta[i].get("link", "")})
 
         if not reviews_with_content:
-            return "유효한 블로그 본문을 스크래핑할 수 없습니다.", ""
+            return "유효한 블로그 본문을 스크래핑할 수 없습니다.", []
 
-        # Summarize and extract tips using LLM
-        # Since Gradio expects a single string for output, we'll run the stream to completion
+        if return_full_text:
+            if return_meta:
+                return "", reviews_with_content
+            else:
+                full_texts = [review['content'] for review in reviews_with_content]
+                return "", full_texts
+
+        # --- Proceed with LLM Summarization ---
         summary_generator = self.summarize_blog_contents_stream(reviews_with_content)
         full_summary = ""
         try:
             async for chunk in summary_generator:
                 full_summary = chunk
-        except TypeError: # Handle case where it's not an async generator (e.g., error string)
+        except TypeError: 
             full_summary = next(summary_generator) if isinstance(summary_generator, (list, tuple)) else summary_generator
 
-        # For tips, we can extract them from the full_summary if the prompt is designed for it
-        # Or, if a separate tip extraction prompt is needed, it would go here.
-        # For now, the summary itself contains the categorized tips.
-        tips = full_summary # The summary is already structured with tips
+        return full_summary, full_summary
+
+    async def get_sentiment_for_text(self, text: str):
+        """
+        Analyzes a single text for sentiment sentence-by-sentence using the LLM.
+        Returns a list of judgment dictionaries.
+        """
+        if not self.llm:
+            return None
+
+        # Truncate text to avoid exceeding token limits
+        truncated_text = text[:8000] # Increased limit for more context
+
+        prompt = f"""
+        You are a sentiment analysis expert specializing in Korean blog posts. Your task is to analyze the following blog post sentence by sentence.
+        1. Break the text into individual sentences.
+        2. For each sentence, determine if it expresses a personal opinion or sentiment about the main topic of the blog post.
+        3. If it does, classify its sentiment as '긍정' (Positive), '부정' (Negative), or '중립' (Neutral).
+        4. Assign a sentiment score from 1 (very negative) to 10 (very positive). 5 is neutral.
+        5. Return ONLY a JSON object containing a key 'judgments', which is a list of your findings. Each item in the list must be a dictionary with keys 'sentence', 'classification', and 'score'.
         
-        return full_summary, tips
+        Example JSON output:
+        {{"judgments": [
+            {{"sentence": "오늘 날씨가 정말 좋아서 기분이 상쾌했어요.", "classification": "긍정", "score": 9}},
+            {{"sentence": "하지만 주차장이 너무 좁아서 아쉬웠습니다.", "classification": "부정", "score": 3}},
+            {{"sentence": "이 축제는 매년 10월에 열립니다.", "classification": "중립", "score": 5}}
+        ]}}
+
+        --- TEXT TO ANALYZE ---
+        {truncated_text}
+        ---
+        """
+        try:
+            response = await self.llm.ainvoke(prompt)
+            response_content = response.content.strip()
+            
+            match = re.search(r'\{.*\}', response_content, re.DOTALL)
+            if not match:
+                print(f"Error: No JSON object found in sentiment response. Raw response: {response_content}")
+                return None
+
+            json_str = match.group(0)
+            data = json.loads(json_str)
+            
+            # Return the list of judgments
+            return data.get('judgments', [])
+            
+        except (json.JSONDecodeError, TypeError, KeyError) as e:
+            print(f"Error parsing sentiment analysis response: {e}")
+            print(f"Raw response was: {response.content if 'response' in locals() else 'N/A'}")
+            return None
+        except Exception as e:
+            print(f"An unexpected error occurred during sentiment analysis: {e}")
+            return None
