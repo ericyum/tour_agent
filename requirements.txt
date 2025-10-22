@@ -1,0 +1,16 @@
+pandas
+openpyxl
+gradio
+python-dotenv
+playwright
+langchain-openai
+nltk
+requests
+langgraph
+langchain_core
+selenium
+webdriver-manager
+langchain-google-genai
+matplotlib
+Pillow
+wordcloud
