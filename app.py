@@ -45,7 +45,7 @@ except ImportError:
 # --- Custom Module Imports ---
 from setup_database import load_data_to_db
 from naver_review_supervisor import NaverReviewSupervisor
-from modules.naver_search.naver_review import get_naver_trend
+from modules.naver_search.naver_review import get_naver_trend, search_naver_blog
 
 # --- New LLM-related Imports (for sentiment analysis only) ---
 from src.domain.state import LLMGraphState
@@ -420,53 +420,89 @@ async def generate_word_cloud(festival_name, num_reviews):
 
 
 async def analyze_sentiment(festival_name, num_reviews):
-    num_outputs = 28 # Number of outputs for the sentiment analysis tab
+    outputs_to_clear = [
+        gr.update(open=True),  # sentiment_accordion
+        "",  # sentiment_status
+        gr.update(visible=False),  # sentiment_negative_summary
+        gr.update(visible=False),  # sentiment_overall_chart
+        gr.update(visible=False),  # sentiment_summary
+        gr.update(visible=False),  # sentiment_overall_csv
+        gr.update(visible=False),  # sentiment_spring_chart
+        gr.update(visible=False),  # sentiment_summer_chart
+        gr.update(visible=False),  # sentiment_autumn_chart
+        gr.update(visible=False),  # sentiment_winter_chart
+        gr.update(visible=False),  # sentiment_spring_pos_wc
+        gr.update(visible=False),  # sentiment_spring_neg_wc
+        gr.update(visible=False),  # sentiment_summer_pos_wc
+        gr.update(visible=False),  # sentiment_summer_neg_wc
+        gr.update(visible=False),  # sentiment_autumn_pos_wc
+        gr.update(visible=False),  # sentiment_autumn_neg_wc
+        gr.update(visible=False),  # sentiment_winter_pos_wc
+        gr.update(visible=False),  # sentiment_winter_neg_wc
+        None,  # sentiment_df_output
+        None,  # blog_results_df_state
+        None,  # blog_judgments_state
+        1,  # sentiment_blog_page_num_input
+        "/ 1",  # sentiment_blog_total_pages_output
+        gr.update(visible=False),  # sentiment_blog_list_csv
+        gr.update(visible=False),  # sentiment_individual_summary
+        gr.update(visible=False),  # sentiment_individual_donut_chart
+        gr.update(visible=False),  # sentiment_individual_score_chart
+        gr.update(visible=False, open=False),  # sentiment_blog_detail_accordion
+    ]
+
     if not festival_name:
-        yield gr.update(visible=False), "축제를 선택해주세요.", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+        outputs_to_clear[1] = "축제를 선택해주세요."
+        yield tuple(outputs_to_clear)
         return
 
-    driver = None
     try:
-        yield gr.update(visible=True, open=True), "웹 드라이버 초기화 중...", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
-        driver = create_driver()
+        outputs_to_clear[1] = "블로그 검색 중..."
+        yield tuple(outputs_to_clear)
 
         search_keyword = f"{festival_name} 후기"
-        candidate_blogs = []
+
         blog_results_list = []
         all_negative_sentences = []
         seasonal_aspect_pairs = {"봄": [], "여름": [], "가을": [], "겨울": [], "정보없음": []}
         seasonal_texts = {"봄": [], "여름": [], "가을": [], "겨울": [], "정보없음": []}
         seasonal_data = {"봄": {"pos": 0, "neg": 0}, "여름": {"pos": 0, "neg": 0}, "가을": {"pos": 0, "neg": 0}, "겨울": {"pos": 0, "neg": 0}, "정보없음": {"pos": 0, "neg": 0}}
-        
         total_pos, total_neg, total_strong_pos, total_strong_neg = 0, 0, 0, 0
-
-        yield gr.update(visible=True, open=True), f"{festival_name} 블로그 후보 수집 중...", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
-
-        api_results = search_naver_blog_page(search_keyword, start_index=1)
+        
+        api_results = search_naver_blog(search_keyword, display=num_reviews + 10)
         if not api_results:
-            yield gr.update(visible=True, open=True), f"'{search_keyword}'에 대한 네이버 블로그를 찾을 수 없습니다.", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+            outputs_to_clear[1] = f"'{search_keyword}'에 대한 네이버 블로그를 찾을 수 없습니다."
+            yield tuple(outputs_to_clear)
             return
 
+        candidate_blogs = []
         for item in api_results:
             if "blog.naver.com" in item["link"]:
                 item['title'] = re.sub(r'<[^>]+>', '', item['title']).strip()
                 if item['title'] and item["link"]:
                     candidate_blogs.append(item)
-                if len(candidate_blogs) >= num_reviews:
-                    break
+            if len(candidate_blogs) >= num_reviews:
+                break
         
         if not candidate_blogs:
-            yield gr.update(visible=True, open=True), f"'{search_keyword}'에 대한 유효한 블로그 후보를 찾지 못했습니다.", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+            outputs_to_clear[1] = f"'{search_keyword}'에 대한 유효한 블로그 후보를 찾지 못했습니다."
+            yield tuple(outputs_to_clear)
             return
 
         valid_blogs_data = []
         blog_judgments_list = []
+        all_negative_sentences = []
+        seasonal_aspect_pairs = {"봄": [], "여름": [], "가을": [], "겨울": [], "정보없음": []}
+        seasonal_texts = {"봄": [], "여름": [], "가을": [], "겨울": [], "정보없음": []}
+        seasonal_data = {"봄": {"pos": 0, "neg": 0}, "여름": {"pos": 0, "neg": 0}, "가을": {"pos": 0, "neg": 0}, "겨울": {"pos": 0, "neg": 0}, "정보없음": {"pos": 0, "neg": 0}}
+        total_pos, total_neg, total_strong_pos, total_strong_neg = 0, 0, 0, 0
 
         for i, blog_data in enumerate(candidate_blogs):
-            yield gr.update(visible=True, open=True), f"블로그 분석 중... ({len(valid_blogs_data)}/{num_reviews} 완료, {i+1}/{len(candidate_blogs)} 확인)", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+            outputs_to_clear[1] = f"블로그 분석 중... ({len(valid_blogs_data)}/{num_reviews} 완료, {i+1}/{len(candidate_blogs)} 확인)"
+            yield tuple(outputs_to_clear)
 
             try:
-                content = scrape_blog_content(driver, blog_data["link"])
+                content, _ = await naver_supervisor._scrape_blog_content(blog_data["link"])
                 if not content or "오류" in content or "찾을 수 없습니다" in content:
                     continue
 
@@ -527,13 +563,13 @@ async def analyze_sentiment(festival_name, num_reviews):
                 continue
         
         if not valid_blogs_data:
-            yield gr.update(visible=True, open=True), f"'{festival_name}'에 대한 유효한 후기 블로그를 찾지 못했습니다.", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+            outputs_to_clear[1] = f"'{festival_name}'에 대한 유효한 후기 블로그를 찾지 못했습니다."
+            yield tuple(outputs_to_clear)
             return
 
         total_sentiment_frequency = total_pos + total_neg
         total_sentiment_score = ((total_strong_pos - total_strong_neg) / total_sentiment_frequency * 50 + 50) if total_sentiment_frequency > 0 else 50.0
 
-        # --- Package Results ---
         neg_summary_text = summarize_negative_feedback(all_negative_sentences)
         overall_summary_text = f"""- **긍정 문장 수**: {total_pos}개
 - **부정 문장 수**: {total_neg}개
@@ -550,7 +586,7 @@ async def analyze_sentiment(festival_name, num_reviews):
         seasonal_pos_wc_paths = {}
         seasonal_neg_wc_paths = {}
         for season, pairs in seasonal_aspect_pairs.items():
-            season_en = SEASON_EN_MAP.get(season)
+            season_en = CATEGORY_TO_ICON_MAP.get(get_season(pairs[0]['postdate'] if pairs and 'postdate' in pairs[0] else '2000-01-01'))
             if pairs and season_en:
                 mask_path = os.path.abspath(os.path.join(script_dir, "assets", f"mask_{season_en}.png"))
                 pos_path, neg_path = create_sentiment_wordclouds(pairs, f"{festival_name}_{season}", mask_path=mask_path)
@@ -562,6 +598,7 @@ async def analyze_sentiment(festival_name, num_reviews):
 
         yield (
             gr.update(visible=True, open=True),
+            "분석 완료",
             gr.update(value=neg_summary_text, visible=bool(neg_summary_text)),
             gr.update(value=create_donut_chart(total_pos, total_neg, f'{festival_name} 전체 후기 요약'), visible=True),
             gr.update(value=overall_summary_text, visible=True),
@@ -578,19 +615,24 @@ async def analyze_sentiment(festival_name, num_reviews):
             gr.update(value=seasonal_neg_wc_paths.get("가을"), visible=seasonal_neg_wc_paths.get("가을") is not None),
             gr.update(value=seasonal_pos_wc_paths.get("겨울"), visible=seasonal_pos_wc_paths.get("겨울") is not None),
             gr.update(value=seasonal_neg_wc_paths.get("겨울"), visible=seasonal_neg_wc_paths.get("겨울") is not None),
-            initial_page_df, blog_df, blog_judgments_list, current_page, total_pages_str,
+            initial_page_df, 
+            blog_df, 
+            blog_judgments_list, 
+            current_page, 
+            total_pages_str,
             gr.update(value=blog_list_csv, visible=blog_list_csv is not None),
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False, open=False)
+            gr.update(visible=False), # individual_summary
+            gr.update(visible=False), # individual_donut_chart
+            gr.update(visible=False), # individual_score_chart
+            gr.update(visible=False, open=False) # individual_detail_accordion
         )
 
     except Exception as e:
         print(f"감성 분석 중 예외 발생: {e}")
         traceback.print_exc()
-        yield gr.update(visible=True, open=True), f"분석 중 오류 발생: {e}", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
-    finally:
-        if driver:
-            try: driver.quit()
-            except Exception as e_quit: print(f"WebDriver 종료 오류: {e_quit}")
+        outputs_to_clear[1] = f"분석 중 오류 발생: {e}"
+        yield tuple(outputs_to_clear)
+
 
 # --- Gradio Interface ---
 
@@ -654,7 +696,7 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
 
     with gr.Accordion("감성 분석", open=False, visible=False) as sentiment_accordion:
         with gr.Row():
-            num_reviews_slider = gr.Slider(minimum=1, maximum=50, value=10, step=1, label="분석할 후기 수")
+            num_reviews_slider = gr.Slider(minimum=1, maximum=100, value=10, step=1, label="분석할 후기 수", interactive=True)
             run_sentiment_btn = gr.Button("감성 분석 실행", variant="primary")
         
         sentiment_status = gr.Textbox(label="분석 상태", interactive=False)
@@ -772,6 +814,41 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
         fn=generate_word_cloud,
         inputs=[selected_festival_state, num_reviews_wordcloud],
         outputs=[wordcloud_accordion, wordcloud_status, wordcloud_plot]
+    )
+
+    run_sentiment_btn.click(
+        fn=analyze_sentiment,
+        inputs=[selected_festival_state, num_reviews_slider],
+        outputs=[
+            sentiment_accordion,
+            sentiment_status,
+            sentiment_negative_summary,
+            sentiment_overall_chart,
+            sentiment_summary,
+            sentiment_overall_csv,
+            sentiment_spring_chart,
+            sentiment_summer_chart,
+            sentiment_autumn_chart,
+            sentiment_winter_chart,
+            sentiment_spring_pos_wc,
+            sentiment_spring_neg_wc,
+            sentiment_summer_pos_wc,
+            sentiment_summer_neg_wc,
+            sentiment_autumn_pos_wc,
+            sentiment_autumn_neg_wc,
+            sentiment_winter_pos_wc,
+            sentiment_winter_neg_wc,
+            sentiment_df_output,
+            blog_results_df_state,
+            blog_judgments_state,
+            sentiment_blog_page_num_input,
+            sentiment_blog_total_pages_output,
+            sentiment_blog_list_csv,
+            sentiment_individual_summary,
+            sentiment_individual_donut_chart,
+            sentiment_individual_score_chart,
+            sentiment_blog_detail_accordion,
+        ]
     )
 
     
