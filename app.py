@@ -860,24 +860,43 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
         outputs=[sentiment_df_output, sentiment_blog_page_num_input, sentiment_blog_total_pages_output]
     )
 
+    def handle_df_select(evt: gr.SelectData, page_num: int, df: pd.DataFrame, judgments: list):
+        BLOG_PAGE_SIZE = 10
+        page_num = page_num or 1
+        
+        global_idx = (int(page_num) - 1) * BLOG_PAGE_SIZE + evt.index[0]
+
+        if df is None or df.empty or judgments is None or not isinstance(judgments, list) or global_idx >= len(judgments):
+            return gr.update(), gr.update(), gr.update(), gr.update()
+
+        judgments_for_row = judgments[global_idx]
+        
+        if not isinstance(judgments_for_row, list):
+            return gr.update(), gr.update(), gr.update(), gr.update()
+
+        donut_chart = create_donut_chart(
+            sum(1 for j in judgments_for_row if isinstance(j, dict) and j.get('final_verdict') == '긍정'),
+            sum(1 for j in judgments_for_row if isinstance(j, dict) and j.get('final_verdict') == '부정'),
+            f"{df.iloc[global_idx]['블로그 제목'][:20]}... 긍/부정 비율"
+        )
+
+        score_chart = create_sentence_score_bar_chart(
+            judgments_for_row,
+            f"{df.iloc[global_idx]['블로그 제목'][:20]}... 문장별 점수"
+        )
+        
+        summary_text = df.iloc[global_idx]['긍/부정 문장 요약']
+
+        return gr.update(value=donut_chart, visible=True), gr.update(value=score_chart, visible=True), gr.update(value=summary_text, visible=True), gr.update(open=True, visible=True)
+
     sentiment_df_output.select(
-        fn=lambda evt, df, judgments, page_num: (
-            gr.update(value=create_donut_chart(
-                sum(1 for j in judgments[ (int(page_num) - 1) * PAGE_SIZE + evt.index[0] ] if j['final_verdict'] == '긍정'),
-                sum(1 for j in judgments[ (int(page_num) - 1) * PAGE_SIZE + evt.index[0] ] if j['final_verdict'] == '부정'),
-                f"{df.iloc[ (int(page_num) - 1) * PAGE_SIZE + evt.index[0] ]['블로그 제목'][:20]}... 긍/부정 비율"
-            ), visible=True),
-            gr.update(value=create_sentence_score_bar_chart(
-                judgments[ (int(page_num) - 1) * PAGE_SIZE + evt.index[0] ],
-                f"{df.iloc[ (int(page_num) - 1) * PAGE_SIZE + evt.index[0] ]['블로그 제목'][:20]}... 문장별 점수"
-            ), visible=True),
-            gr.update(value=df.iloc[ (int(page_num) - 1) * PAGE_SIZE + evt.index[0] ]['긍/부정 문장 요약'], visible=True),
-            gr.update(open=True, visible=True)
-        ),
-        inputs=[blog_results_df_state, blog_judgments_state, sentiment_blog_page_num_input],
+        fn=handle_df_select,
+        inputs=[sentiment_blog_page_num_input, blog_results_df_state, blog_judgments_state],
         outputs=[
-            sentiment_individual_donut_chart, sentiment_individual_score_chart,
-            sentiment_individual_summary, sentiment_blog_detail_accordion
+            sentiment_individual_donut_chart,
+            sentiment_individual_score_chart,
+            sentiment_individual_summary,
+            sentiment_blog_detail_accordion
         ]
     )
 
