@@ -1,4 +1,4 @@
-from src.domain.state import LLMGraphState
+from src.application.core.state import LLMGraphState
 from src.domain.knowledge_base import knowledge_base
 from src.infrastructure.llm_client import get_llm_client
 import re

@@ -8,7 +8,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 import traceback
-from ..infrastructure.llm_client import get_llm_client # 상대 경로 임포트 수정
+from src.infrastructure.llm_client import get_llm_client
 
 PAGE_SIZE = 10
 

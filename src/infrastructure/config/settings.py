@@ -12,7 +12,7 @@ def setup_environment():
 
     # .env 파일 로드
     # 프로젝트 루트에 있는 .env 파일을 찾도록 경로 수정
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     dotenv_path = os.path.join(project_root, ".env")
     
     if os.path.exists(dotenv_path):

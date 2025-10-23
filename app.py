@@ -9,21 +9,8 @@ import io
 import pandas as pd
 from collections import Counter
 from datetime import datetime, timedelta
-
-import sqlite3
-import json
-import os
-import gradio as gr
-import re
-import math
-import asyncio
-import io
-import pandas as pd
-from collections import Counter
-from datetime import datetime, timedelta
-
 # --- Environment Setup (must be first) ---
-from src.config import setup_environment, get_google_api_key
+from src.infrastructure.config.settings import setup_environment, get_google_api_key
 setup_environment()
 
 # --- Matplotlib Backend Setup ---
@@ -43,22 +30,22 @@ except ImportError:
     WordCloud, plt, Okt, Image, ImageDraw, ImageFont, np = [None]*7
 
 # --- Custom Module Imports ---
-from setup_database import load_data_to_db
-from naver_review_supervisor import NaverReviewSupervisor
-from modules.naver_search.naver_review import get_naver_trend, search_naver_blog
+from src.infrastructure.persistence.database import load_data_to_db
+from src.application.supervisors.naver_review_supervisor import NaverReviewSupervisor
+from src.infrastructure.external_services.naver_search.naver_review_api import get_naver_trend, search_naver_blog
 
 # --- New LLM-related Imports (for sentiment analysis only) ---
-from src.domain.state import LLMGraphState
+from src.application.core.state import LLMGraphState
 from src.domain.knowledge_base import knowledge_base
 from src.infrastructure.llm_client import get_llm_client
 from src.infrastructure.dynamic_scorer import SimpleScorer
-from src.application.agents.content_validator import agent_content_validator
-from src.application.agents.llm_summarizer import agent_llm_summarizer
-from src.application.agents.rule_scorer import agent_rule_scorer_on_summary
-from src.application.graph import app_llm_graph
+from src.application.agents.common.content_validator import agent_content_validator
+from src.application.agents.common.llm_summarizer import agent_llm_summarizer
+from src.application.agents.common.rule_scorer import agent_rule_scorer_on_summary
+from src.application.core.graph import app_llm_graph
 from src.infrastructure.reporting.charts import create_donut_chart, create_stacked_bar_chart, create_sentence_score_bar_chart
 from src.infrastructure.reporting.wordclouds import create_sentiment_wordclouds
-from src.application.utils import get_season, save_df_to_csv, summarize_negative_feedback, create_driver, change_page
+from src.application.core.utils import get_season, save_df_to_csv, summarize_negative_feedback, create_driver, change_page
 
 # --- Selenium Imports (for sentiment analysis only) ---
 from selenium.webdriver.chrome.service import Service
@@ -394,7 +381,11 @@ async def generate_word_cloud(festival_name, num_reviews):
             try:
                 icon_image = Image.open(path).convert("L")
                 mask_array = np.array(icon_image)
-                mask_array = 255 - mask_array
+                mask_array = 255 - mask_array # This inverts the mask
+                print(f"DEBUG: Mask array min value: {mask_array.min()}, max value: {mask_array.max()}")
+                non_white_pixels = np.sum(mask_array < 255)
+                total_pixels = mask_array.size
+                print(f"DEBUG: Percentage of non-white pixels in mask: {non_white_pixels / total_pixels * 100:.2f}%")
             except Exception as e:
                 print(f"Error loading mask image: {e}")
 

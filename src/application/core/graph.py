@@ -1,8 +1,8 @@
 from langgraph.graph import StateGraph, END
-from src.domain.state import LLMGraphState
-from src.application.agents.content_validator import agent_content_validator
-from src.application.agents.llm_summarizer import agent_llm_summarizer
-from src.application.agents.rule_scorer import agent_rule_scorer_on_summary
+from src.application.core.state import LLMGraphState
+from src.application.agents.common.content_validator import agent_content_validator
+from src.application.agents.common.llm_summarizer import agent_llm_summarizer
+from src.application.agents.common.rule_scorer import agent_rule_scorer_on_summary
 
 def route_after_validation(state: LLMGraphState):
     if not state.get("is_relevant"):

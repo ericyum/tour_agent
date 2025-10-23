@@ -3,16 +3,16 @@ import sqlite3
 import os
 
 # Get the directory of the current script
-script_dir = os.path.dirname(__file__)
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-# Define file paths relative to the script's directory
+# Define file paths relative to the project root
 excel_files = {
-    "festivals": os.path.join(script_dir, "database", "축제공연행사csv.csv"),
-    "facilities": os.path.join(script_dir, "database", "문화시설csv.csv"),
-    "courses": os.path.join(script_dir, "database", "여행코스csv.csv")
+    "festivals": os.path.join(project_root, "database", "축제공연행사csv.csv"),
+    "facilities": os.path.join(project_root, "database", "문화시설csv.csv"),
+    "courses": os.path.join(project_root, "database", "여행코스csv.csv")
 }
 
-db_path = os.path.join(script_dir, "tour.db")
+db_path = os.path.join(project_root, "tour.db")
 
 # Function to load excel data into sqlite
 def load_data_to_db():

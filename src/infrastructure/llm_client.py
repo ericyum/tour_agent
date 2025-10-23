@@ -1,5 +1,5 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
-from src.config import get_google_api_key
+from src.infrastructure.config.settings import get_google_api_key
 
 def get_llm_client(temperature: float = 0.0, model: str = "gemini-2.5-pro") -> ChatGoogleGenerativeAI:
     """Google Generative AI LLM 클라이언트를 반환합니다."""

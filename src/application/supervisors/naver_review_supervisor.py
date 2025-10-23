@@ -2,7 +2,7 @@ import os
 import requests
 import re
 from dotenv import load_dotenv
-from modules.naver_search.naver_review import search_naver_blog
+from src.infrastructure.external_services.naver_search.naver_review_api import search_naver_blog
 from playwright.async_api import async_playwright # Original scraper used playwright
 from src.infrastructure.llm_client import get_llm_client # Added LLM client import
 

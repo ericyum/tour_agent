@@ -9,7 +9,7 @@ import traceback
 from collections import defaultdict
 
 # 감성 사전을 불러오기 위해 knowledge_base 임포트
-from ...domain.knowledge_base import knowledge_base
+from src.domain.knowledge_base import knowledge_base
 
 # okt는 더 이상 여기서 필요하지 않음
 # from konlpy.tag import Okt

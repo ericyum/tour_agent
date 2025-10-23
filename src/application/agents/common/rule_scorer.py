@@ -1,4 +1,4 @@
-from src.domain.state import LLMGraphState
+from src.application.core.state import LLMGraphState
 from src.infrastructure.dynamic_scorer import SimpleScorer
 
 def agent_rule_scorer_on_summary(state: LLMGraphState):
