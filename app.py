@@ -621,13 +621,23 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
         festival_details_output = gr.Markdown()
 
     with gr.Accordion("좌표 기반 추천", open=False, visible=False) as recommend_accordion:
-        recommend_radius_slider = gr.Slider(minimum=500, maximum=20000, value=5000, step=500, label="반경 (미터)", interactive=True)
-        recommend_btn = gr.Button("추천 받기", variant="primary")
+        with gr.Row():
+            recommend_radius_slider = gr.Slider(minimum=100, maximum=20000, value=5000, step=100, label="반경 (미터)", interactive=True)
+            recommend_btn = gr.Button("추천 받기", variant="primary")
+        
+        with gr.Row(visible=False) as ranking_controls: # Hide until there are results
+            ranking_reviews_slider = gr.Slider(minimum=1, maximum=10, value=5, step=1, label="순위용 리뷰 수", interactive=True)
+            ranking_top_n_slider = gr.Slider(minimum=1, maximum=5, value=3, step=1, label="표시할 순위 수", interactive=True)
+            rank_facilities_btn = gr.Button("관광 시설 순위 매기기")
+            rank_courses_btn = gr.Button("관광 코스 순위 매기기")
+
         recommend_status = gr.Textbox(label="상태", interactive=False, visible=False)
         gr.Markdown("### 추천 관광 시설")
         recommend_facilities_gallery = gr.Gallery(label="추천 관광 시설", show_label=False, elem_id="recommend_facilities_gallery", columns=4, height="auto", object_fit="contain")
+        facility_ranking_report = gr.Markdown(visible=False)
         gr.Markdown("### 추천 관광 코스")
         recommend_courses_gallery = gr.Gallery(label="추천 관광 코스", show_label=False, elem_id="recommend_courses_gallery", columns=4, height="auto", object_fit="contain")
+        course_ranking_report = gr.Markdown(visible=False)
         with gr.Accordion("추천 장소 상세 정보", open=False, visible=False) as recommend_details_accordion:
             recommend_details_output = gr.Markdown()
 
@@ -708,6 +718,311 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
 
     # --- Event Handlers ---
 
+    def get_trend_score(keyword):
+        if not keyword:
+            return 0
+
+        today = datetime.today()
+        start_date = today - timedelta(days=90) # Last 90 days
+        trend_data = get_naver_trend(keyword, start_date, today)
+        
+        if not trend_data:
+            return 0
+            
+        df = pd.DataFrame(trend_data)
+        if 'ratio' in df.columns and not df['ratio'].empty:
+            # Return the average ratio as the score
+            return df['ratio'].mean()
+        
+        return 0
+
+    async def get_sentiment_score(keyword, num_reviews):
+        if not keyword:
+            return 50.0, [] # Return a neutral score and empty list
+
+        search_keyword = f"{keyword} 후기"
+        
+        api_results = search_naver_blog(search_keyword, display=num_reviews + 10)
+        if not api_results:
+            return 50.0, []
+
+        candidate_blogs = []
+        for item in api_results:
+            if "blog.naver.com" in item["link"]:
+                item['title'] = re.sub(r'<[^>]+>', '', item['title']).strip()
+                if item['title'] and item["link"]:
+                    candidate_blogs.append(item)
+            if len(candidate_blogs) >= num_reviews:
+                break
+        
+        if not candidate_blogs:
+            return 50.0, []
+
+        total_strong_pos = 0
+        total_strong_neg = 0
+        total_sentiment_frequency = 0
+        all_positive_judgments = []
+
+        for blog_data in candidate_blogs:
+            try:
+                content, _ = await naver_supervisor._scrape_blog_content(blog_data["link"])
+                if not content or "오류" in content or "찾을 수 없습니다" in content:
+                    continue
+
+                max_content_length = 30000
+                if len(content) > max_content_length:
+                    content = content[:max_content_length]
+
+                final_state = app_llm_graph.invoke({
+                    "original_text": content, "keyword": keyword, "title": blog_data["title"],
+                    "log_details": False, "re_summarize_count": 0, "is_relevant": False
+                })
+
+                if not final_state or not final_state.get("is_relevant"):
+                    continue
+
+                judgments = final_state.get("final_judgments", [])
+                if not judgments:
+                    continue
+
+                all_positive_judgments.extend([j for j in judgments if j["final_verdict"] == "긍정"])
+
+                pos_count = sum(1 for res in judgments if res["final_verdict"] == "긍정")
+                neg_count = sum(1 for res in judgments if res["final_verdict"] == "부정")
+                strong_pos_count = sum(1 for res in judgments if res["final_verdict"] == "긍정" and res["score"] >= 1.0)
+                strong_neg_count = sum(1 for res in judgments if res["final_verdict"] == "부정" and res["score"] < -1.0)
+
+                total_strong_pos += strong_pos_count
+                total_strong_neg += strong_neg_count
+                total_sentiment_frequency += (pos_count + neg_count)
+
+            except Exception as e:
+                print(f"Error getting sentiment for '{keyword}': {e}")
+                continue
+        
+        if total_sentiment_frequency == 0:
+            return 50.0, []
+            
+        sentiment_score = ((total_strong_pos - total_strong_neg) / total_sentiment_frequency * 50 + 50)
+        return sentiment_score, all_positive_judgments
+
+    async def summarize_trend_reasons(keyword):
+        if not keyword:
+            return "키워드가 없어 트렌드 분석 불가"
+
+        today = datetime.today()
+        start_date = today - timedelta(days=90)
+        trend_data = get_naver_trend(keyword, start_date, today)
+
+        if not trend_data:
+            return "트렌드 데이터 없음"
+
+        df = pd.DataFrame(trend_data)
+        data_str = df.to_string()
+
+        llm = get_llm_client(temperature=0.2)
+        prompt = f"""
+        다음은 '{keyword}'에 대한 최근 90일간의 네이버 검색량 트렌드 데이터입니다.
+        데이터(날짜별 관심도 비율)를 기반으로, 검색량 트렌드의 특징을 1~2줄로 요약해주세요.
+        예: '최근 한 달간 관심도가 꾸준히 증가하고 있습니다.' 또는 '특정 날짜에 검색량이 급증하는 패턴을 보입니다.'
+
+        데이터:
+        {data_str}
+        """
+        try:
+            response = await llm.ainvoke(prompt)
+            return response.content.strip()
+        except Exception as e:
+            print(f"Error summarizing trend: {e}")
+            return "트렌드 분석 중 오류 발생"
+
+    async def summarize_sentiment_reasons(positive_judgments, keyword):
+        if not positive_judgments:
+            return "긍정 리뷰가 없어 분석 불가"
+
+        sentences = [j['sentence'] for j in positive_judgments]
+        sentences_str = "\n- ".join(sentences[:20])
+
+        llm = get_llm_client(temperature=0.2)
+        prompt = f"""
+        다음은 '{keyword}'에 대한 블로그 리뷰에서 추출된 긍정적인 문장들입니다.
+        이 문장들을 바탕으로, 사용자들이 주로 어떤 점을 칭찬하는지 핵심적인 이유 1~2가지를 요약해주세요.
+        예: '깨끗한 시설과 다양한 먹거리에 대한 칭찬이 많습니다.' 또는 '아이들이 즐길 수 있는 체험 프로그램이 좋은 평가를 받았습니다.'
+
+        긍정 문장 목록:
+        - {sentences_str}
+        """
+        try:
+            response = await llm.ainvoke(prompt)
+            return response.content.strip()
+        except Exception as e:
+            print(f"Error summarizing sentiment: {e}")
+            return "감성 분석 이유 요약 중 오류 발생"
+
+
+    async def rank_facilities(facilities_list, num_reviews, top_n, progress=gr.Progress()):
+        if not facilities_list:
+            return [], "시설 목록이 비어있습니다.", gr.update(value=[]), "", gr.update(visible=False), gr.update(visible=False)
+
+        async def process_facility(facility):
+            title = facility.get('title', '')
+            trend_score = get_trend_score(title)
+            sentiment_score, positive_judgments = await get_sentiment_score(title, num_reviews)
+            
+            trend_reason, sentiment_reason = await asyncio.gather(
+                summarize_trend_reasons(title),
+                summarize_sentiment_reasons(positive_judgments, title)
+            )
+            
+            facility['trend_score'] = round(trend_score, 2)
+            facility['sentiment_score'] = round(sentiment_score, 2)
+            facility['ranking_score'] = round((trend_score * 0.5) + (sentiment_score * 0.5), 2)
+            facility['trend_reason'] = trend_reason
+            facility['sentiment_reason'] = sentiment_reason
+            return facility
+
+        tasks = [process_facility(f) for f in facilities_list]
+        ranked_facilities = []
+        for task in progress.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="시설 점수 계산 중"):
+            result_facility = await task
+            ranked_facilities.append(result_facility)
+
+        ranked_facilities.sort(key=lambda x: x.get('ranking_score', 0), reverse=True)
+        gallery_output = [(item.get('firstimage', NO_IMAGE_URL) or NO_IMAGE_URL, f"점수: {item.get('ranking_score')} - {item['title']}") for item in ranked_facilities]
+        report_update = await generate_full_report(ranked_facilities, top_n)
+        
+        return ranked_facilities, "순위 계산 완료!", gallery_output, report_update
+
+    async def rank_courses(courses_list, num_reviews, top_n, progress=gr.Progress()):
+        if not courses_list:
+            return [], "코스 목록이 비어있습니다.", gr.update(value=[]), "", gr.update(visible=False), gr.update(visible=False)
+
+        async def process_course(course):
+            course_title = course.get('title', '')
+            sub_points = course.get('sub_points', [])
+            if not sub_points:
+                course['ranking_score'] = 0
+                return course
+
+            sub_point_trend_scores = []
+            sub_point_sentiment_scores = []
+            all_positive_judgments = []
+
+            for sub_point in sub_points:
+                sub_title = sub_point.get('subname', '')
+                if not sub_title:
+                    continue
+                
+                trend_score = get_trend_score(sub_title)
+                sentiment_score, positive_judgments = await get_sentiment_score(sub_title, num_reviews)
+                sub_point_trend_scores.append(trend_score)
+                sub_point_sentiment_scores.append(sentiment_score)
+                all_positive_judgments.extend(positive_judgments)
+            
+            if not sub_point_trend_scores:
+                course['ranking_score'] = 0
+                course['trend_score'] = 0
+                course['sentiment_score'] = 0
+                course['trend_reason'] = "세부 코스 정보 부족"
+                course['sentiment_reason'] = "세부 코스 정보 부족"
+            else:
+                avg_trend_score = sum(sub_point_trend_scores) / len(sub_point_trend_scores)
+                avg_sentiment_score = sum(sub_point_sentiment_scores) / len(sub_point_sentiment_scores)
+                course['trend_score'] = round(avg_trend_score, 2)
+                course['sentiment_score'] = round(avg_sentiment_score, 2)
+                course['ranking_score'] = round((avg_trend_score * 0.5) + (avg_sentiment_score * 0.5), 2)
+                
+                trend_reason, sentiment_reason = await asyncio.gather(
+                    summarize_trend_reasons(course_title),
+                    summarize_sentiment_reasons(all_positive_judgments, course_title)
+                )
+                course['trend_reason'] = trend_reason
+                course['sentiment_reason'] = sentiment_reason
+            
+            return course
+
+        tasks = [process_course(c) for c in courses_list]
+        ranked_courses = []
+        for task in progress.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="코스 점수 계산 중"):
+            result_course = await task
+            ranked_courses.append(result_course)
+
+        ranked_courses.sort(key=lambda x: x.get('ranking_score', 0), reverse=True)
+        gallery_output = [(item.get('firstimage', NO_IMAGE_URL) or NO_IMAGE_URL, f"점수: {item.get('ranking_score')} - {item['title']}") for item in ranked_courses]
+        report_md, report_visible, header_visible = generate_full_report(ranked_courses, top_n)
+
+        return ranked_courses, "순위 계산 완료!", gallery_output, report_md, report_visible, header_visible
+
+    async def generate_full_report(ranked_list, top_n):
+        top_n = int(top_n)
+        if not ranked_list or not any(item.get('ranking_score', 0) > 0 for item in ranked_list[:top_n]):
+            return gr.update(value="스코어링된 항목이 없습니다.", visible=True)
+
+        # Generate the new comparative summary
+        comparative_summary = await generate_comparative_summary(ranked_list[:top_n])
+
+        report_parts = [f"## 🏆 최종 순위 분석\n{comparative_summary}", "---"]
+        top_items = ranked_list[:top_n]
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+
+        for i, item in enumerate(top_items):
+            if i >= len(medals):
+                rank_indicator = f"{i+1}위"
+            else:
+                rank_indicator = medals[i]
+
+            title = item.get('title', 'N/A')
+            total_score = item.get('ranking_score', 'N/A')
+            trend_score = item.get('trend_score', 'N/A')
+            sentiment_score = item.get('sentiment_score', 'N/A')
+            image_url = item.get('firstimage', NO_IMAGE_URL) or NO_IMAGE_URL
+            trend_reason = item.get('trend_reason', '분석 정보 없음')
+            sentiment_reason = item.get('sentiment_reason', '분석 정보 없음')
+
+            report_parts.append(f"### {rank_indicator} {i+1}위: {title} (종합 점수: {total_score})")
+            report_parts.append(f"![{title}]({image_url})\n")
+            report_parts.append(f"- **트렌드 점수**: {trend_score}")
+            report_parts.append(f"- **감성 점수**: {sentiment_score}")
+            report_parts.append(f"**📈 트렌드 분석**: {trend_reason}")
+            report_parts.append(f"**❤️ 감성 분석**: {sentiment_reason}")
+            report_parts.append("---")
+
+        report_md = "\n\n".join(report_parts)
+        return gr.update(value=report_md, visible=True)
+
+    async def generate_comparative_summary(ranked_list):
+        llm = get_llm_client(temperature=0.3)
+        
+        # Format the data for the prompt
+        data_for_prompt = []
+        for item in ranked_list:
+            data_for_prompt.append({
+                "title": item.get('title'),
+                "ranking_score": item.get('ranking_score'),
+                "trend_score": item.get('trend_score'),
+                "sentiment_score": item.get('sentiment_score'),
+                "trend_reason": item.get('trend_reason'),
+                "sentiment_reason": item.get('sentiment_reason')
+            })
+        
+        prompt = f"""
+        당신은 여행 추천 데이터 분석가입니다. 아래에 트렌드 점수와 감성 점수를 종합하여 순위를 매긴 관광지 목록이 있습니다. 
+        이 데이터를 바탕으로, 1위가 왜 1위를 차지했는지 다른 순위와 비교하여 최종 결론을 2-3문장으로 요약해주세요.
+        단순히 점수가 높다는 사실만 언급하지 말고, 각 점수의 의미(트렌드=화제성, 감성=실제 만족도)를 해석하고, 다른 장소와 비교하여 설득력 있는 이유를 제시해야 합니다.
+
+        [데이터]
+        {json.dumps(data_for_prompt, ensure_ascii=False, indent=2)}
+
+        [요약 예시]
+        "최종 분석 결과, A가 1위를 차지했습니다. 비록 B가 실제 방문객의 만족도(감성 점수)는 더 높았지만, A는 압도적인 화제성(트렌드 점수)과 준수한 만족도를 바탕으로 가장 균형 잡힌 추천 장소로 선정되었습니다. 반면 C는 높은 화제성에도 불구하고 긍정적인 피드백이 부족하여 순위가 밀렸습니다."
+        """
+        try:
+            response = await llm.ainvoke(prompt)
+            return response.content.strip()
+        except Exception as e:
+            print(f"Error generating comparative summary: {e}")
+            return "최종 분석 요약 생성 중 오류가 발생했습니다."
+
     def update_sigungu(area):
         choices = ["전체"] + sorted(list(SIGUNGU_CODE_MAP.get(area, {}).keys())) if area != "전체" else ["전체"]
         return gr.update(choices=choices, value="전체")
@@ -739,7 +1054,7 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
 
     def run_nearby_search(festival_details, radius_meters):
         if not festival_details or not festival_details.get('mapx') or not festival_details.get('mapy'):
-            return [], [], gr.update(value="축제 좌표 정보가 없어 추천할 수 없습니다.", visible=True), [], []
+            return [], [], gr.update(value="축제 좌표 정보가 없어 추천할 수 없습니다.", visible=True), [], [], gr.update(visible=False)
 
         initial_state = {
             "search_type": "nearby_search",
@@ -753,12 +1068,12 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
         courses_recs = final_state.get("recommended_courses", [])
 
         if not facilities_recs and not courses_recs:
-            return [], [], gr.update(value=f"{radius_meters}m 내에 추천할 장소가 없습니다.", visible=True), [], []
+            return [], [], gr.update(value=f"{radius_meters}m 내에 추천할 장소가 없습니다.", visible=True), [], [], gr.update(visible=False)
 
         facility_gallery_output = [(item.get('firstimage', NO_IMAGE_URL) or NO_IMAGE_URL, item['title']) for item in facilities_recs]
         course_gallery_output = [(item.get('firstimage', NO_IMAGE_URL) or NO_IMAGE_URL, item['title']) for item in courses_recs]
 
-        return facilities_recs, courses_recs, facility_gallery_output, course_gallery_output, gr.update(visible=False)
+        return facilities_recs, courses_recs, facility_gallery_output, course_gallery_output, gr.update(visible=False), gr.update(visible=True)
 
     search_btn.click(
         fn=run_search_and_display,
@@ -848,6 +1163,28 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
         ]
     )
 
+    rank_facilities_btn.click(
+        fn=rank_facilities,
+        inputs=[recommended_facilities_state, ranking_reviews_slider, ranking_top_n_slider],
+        outputs=[
+            recommended_facilities_state,
+            recommend_status,
+            recommend_facilities_gallery,
+            facility_ranking_report
+        ]
+    )
+
+    rank_courses_btn.click(
+        fn=rank_courses,
+        inputs=[recommended_courses_state, ranking_reviews_slider, ranking_top_n_slider],
+        outputs=[
+            recommended_courses_state,
+            recommend_status,
+            recommend_courses_gallery,
+            course_ranking_report
+        ]
+    )
+
     recommend_btn.click(
         fn=run_nearby_search,
         inputs=[selected_festival_details_state, recommend_radius_slider],
@@ -856,7 +1193,8 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             recommended_courses_state,
             recommend_facilities_gallery, 
             recommend_courses_gallery, 
-            recommend_status
+            recommend_status,
+            ranking_controls
         ]
     )
 
