@@ -108,3 +108,21 @@ def create_driver():
         print(f"WebDriver 생성 실패: {e}")
         traceback.print_exc()
         raise RuntimeError("WebDriver를 생성할 수 없습니다. Chrome 또는 ChromeDriver 설치를 확인하세요.") from e
+
+def haversine(lon1, lat1, lon2, lat2):
+    # Ensure inputs are valid floats
+    try:
+        lon1, lat1, lon2, lat2 = map(float, [lon1, lat1, lon2, lat2])
+    except (ValueError, TypeError):
+        return float('inf') # Return infinity if conversion fails
+
+    # convert decimal degrees to radians
+    lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
+
+    # haversine formula
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.asin(math.sqrt(a))
+    r = 6371000 # Radius of earth in meters
+    return c * r

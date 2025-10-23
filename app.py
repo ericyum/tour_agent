@@ -45,7 +45,7 @@ from src.application.agents.common.rule_scorer import agent_rule_scorer_on_summa
 from src.application.core.graph import app_llm_graph
 from src.infrastructure.reporting.charts import create_donut_chart, create_stacked_bar_chart, create_sentence_score_bar_chart
 from src.infrastructure.reporting.wordclouds import create_sentiment_wordclouds
-from src.application.core.utils import get_season, save_df_to_csv, summarize_negative_feedback, create_driver, change_page, get_logger
+from src.application.core.utils import get_season, save_df_to_csv, summarize_negative_feedback, create_driver, change_page, get_logger, haversine
 
 # --- Selenium Imports (for sentiment analysis only) ---
 from selenium.webdriver.chrome.service import Service
@@ -62,52 +62,36 @@ except LookupError:
 
 # --- Constants and Setup ---
 script_dir = os.path.dirname(__file__)
-NO_IMAGE_URL = "https://placehold.co/300x200?text=No+Image"
-PAGE_SIZE = 16
+
 
 CUSTOM_CSS = """#gallery .thumbnail-item { max-width: 250px !important; min-width: 200px !important; flex-grow: 1 !important; }"""
 
+from src.application.core.constants import AREA_CODE_MAP, SIGUNGU_CODE_MAP, CATEGORY_TO_ICON_MAP, NO_IMAGE_URL, PAGE_SIZE
+
 # --- Data Loading and Mappings ---
-
-AREA_CODE_MAP = {
-    "서울": 1, "인천": 2, "대전": 3, "대구": 4, "광주": 5, "부산": 6, "울산": 7, 
-    "세종특별자치시": 8, "경기도": 31, "강원특별자치도": 32, "충청북도": 33, 
-    "충청남도": 34, "경상북도": 35, "경상남도": 36, "전북특별자치도": 37, 
-    "전라남도": 38, "제주특별자치도": 39
-}
-
-SIGUNGU_CODE_MAP = {
-    "서울": { "강남구": 1, "강동구": 2, "강북구": 3, "강서구": 4, "관악구": 5, "광진구": 6, "구로구": 7, "금천구": 8, "노원구": 9, "도봉구": 10, "동대문구": 11, "동작구": 12, "마포구": 13, "서대문구": 14, "서초구": 15, "성동구": 16, "성북구": 17, "송파구": 18, "양천구": 19, "영등포구": 20, "용산구": 21, "은평구": 22, "종로구": 23, "중구": 24, "중랑구": 25 },
-    "인천": { "강화군": 1, "계양구": 2, "미추홀구": 3, "남동구": 4, "동구": 5, "부평구": 6, "서구": 7, "연수구": 8, "옹진군": 9, "중구": 10 },
-    "대전": { "대덕구": 1, "동구": 2, "서구": 3, "유성구": 4, "중구": 5 },
-    "대구": { "남구": 1, "달서구": 2, "달성군": 3, "동구": 4, "북구": 5, "서구": 6, "수성구": 7, "중구": 8, "군위군": 9 },
-    "광주": { "광산구": 1, "남구": 2, "동구": 3, "북구": 4, "서구": 5 },
-    "부산": { "강서구": 1, "금정구": 2, "기장군": 3, "남구": 4, "동구": 5, "동래구": 6, "부산진구": 7, "북구": 8, "사상구": 9, "사하구": 10, "서구": 11, "수영구": 12, "연제구": 13, "영도구": 14, "중구": 15, "해운대구": 16 },
-    "울산": { "중구": 1, "남구": 2, "동구": 3, "북구": 4, "울주군": 5 },
-    "세종특별자치시": { "세종특별자치시": 1 },
-    "경기도": { "가평군": 1, "고양시": 2, "과천시": 3, "광명시": 4, "광주시": 5, "구리시": 6, "군포시": 7, "김포시": 8, "남양주시": 9, "동두천시": 10, "부천시": 11, "성남시": 12, "수원시": 13, "시흥시": 14, "안산시": 15, "안성시": 16, "안양시": 17, "양주시": 18, "양평군": 19, "여주시": 20, "연천군": 21, "오산시": 22, "용인시": 23, "의왕시": 24, "의정부시": 25, "이천시": 26, "파주시": 27, "평택시": 28, "포천시": 29, "하남시": 30, "화성시": 31 },
-    "강원특별자치도": { "강릉시": 1, "고성군": 2, "동해시": 3, "삼척시": 4, "속초시": 5, "양구군": 6, "양양군": 7, "영월군": 8, "원주시": 9, "인제군": 10, "정선군": 11, "철원군": 12, "춘천시": 13, "태백시": 14, "평창군": 15, "홍천군": 16, "화천군": 17, "횡성군": 18 },
-    "충청북도": { "괴산군": 1, "단양군": 2, "보은군": 3, "영동군": 4, "옥천군": 5, "음성군": 6, "제천시": 7, "증평군": 8, "진천군": 9, "청주시": 10, "충주시": 11 },
-    "충청남도": { "계룡시": 1, "공주시": 2, "금산군": 3, "논산시": 4, "당진시": 5, "보령시": 6, "부여군": 7, "서산시": 8, "서천군": 9, "아산시": 10, "예산군": 11, "천안시": 12, "청양군": 13, "태안군": 14, "홍성군": 15 },
-    "경상북도": { "경산시": 1, "경주시": 2, "고령군": 3, "구미시": 4, "김천시": 5, "문경시": 6, "봉화군": 7, "상주시": 8, "성주군": 9, "안동시": 10, "영덕군": 11, "영양군": 12, "영주시": 13, "영천시": 14, "예천군": 15, "울릉군": 16, "울진군": 17, "의성군": 18, "청도군": 19, "청송군": 20, "칠곡군": 21, "포항시": 22 },
-    "경상남도": { "거제시": 1, "거창군": 2, "고성군": 3, "김해시": 4, "남해군": 5, "밀양시": 6, "사천시": 7, "산청군": 8, "양산시": 9, "의령군": 10, "진주시": 11, "창녕군": 12, "창원시": 13, "통영시": 14, "하동군": 15, "함안군": 16, "함양군": 17, "합천군": 18 },
-    "전북특별자치도": { "고창군": 1, "군산시": 2, "김제시": 3, "남원시": 4, "무주군": 5, "부안군": 6, "순창군": 7, "완주군": 8, "익산시": 9, "임실군": 10, "장수군": 11, "전주시": 12, "정읍시": 13, "진안군": 14 },
-    "전라남도": { "강진군": 1, "고흥군": 2, "곡성군": 3, "광양시": 4, "구례군": 5, "나주시": 6, "담양군": 7, "목포시": 8, "무안군": 9, "보성군": 10, "순천시": 11, "신안군": 12, "여수시": 13, "영광군": 14, "영암군": 15, "완도군": 16, "장성군": 17, "장흥군": 18, "진도군": 19, "함평군": 20, "해남군": 21, "화순군": 22 },
-    "제주특별자치도": { "제주시": 1, "서귀포시": 2 }
-}
-
-CATEGORY_TO_ICON_MAP = {
-    "도시와지역이벤트": "mask_city",
-    "문화예술과공연": "mask_happy",
-    "산업과지식": "mask_industry",
-    "자연과계절": "mask_nature",
-    "전통과역사": "mask_tradition",
-    "지역특산물과음식": "mask_food",
-    "체험과레저": "mask_sport"
-}
 
 CAT_NAME_TO_CODE = {'main': {}, 'medium': {}, 'small': {}}
 TITLE_TO_CAT_NAMES = {}
+
+COLUMN_TRANSLATIONS = {
+    'addr1': '주소', 'addr2': '상세주소', 'tel': '전화번호', 'title': '제목', 'zipcode': '우편번호', 
+    'telname': '연락처 이름', 'homepage': '홈페이지', 'overview': '개요', 'sponsor1': '주최자',
+    'sponsor1tel': '주최자 연락처', 'eventenddate': '행사 종료일', 'playtime': '공연 시간',
+    'eventplace': '행사 장소', 'eventstartdate': '행사 시작일', 'usetimefestival': '이용 요금',
+    'sponsor2': '후원사', 'progresstype': '진행 상태', 'festivaltype': '축제 유형',
+    'sponsor2tel': '후원사 연락처', 'agelimit': '연령 제한', 'spendtimefestival': '관람 소요시간',
+    'festivalgrade': '축제 등급', 'eventhomepage': '행사 홈페이지', 'subevent': '부대 행사',
+    'program': '행사 프로그램', 'discountinfofestival': '할인 정보', 'placeinfo': '행사장 위치 안내',
+    'bookingplace': '예매처', 'usefee': '이용 요금', 'infocenterculture': '문의 및 안내',
+    'usetimeculture': '이용 시간', 'restdateculture': '쉬는 날', 'parkingfee': '주차 요금',
+    'parkingculture': '주차 시설', 'chkcreditcardculture': '신용카드 가능 정보',
+    'chkbabycarriageculture': '유모차 대여 정보', 'spendtime': '관람 소요시간',
+    'accomcountculture': '수용인원', 'scale': '규모', 'chkpetculture': '반려동물 동반 가능 정보',
+    'discountinfo': '할인 정보', 'distance': '총 거리', 'schedule': '코스 일정',
+    'taketime': '총 소요시간', 'theme': '코스 테마', 'subnum': '세부 코스 번호',
+    'subname': '세부 코스명', 'subdetailoverview': '세부 코스 개요', 'firstimage': '대표 이미지',
+    'firstimage2': '추가 이미지'
+}
 
 settings = Settings()
 logger = get_logger(__name__)
@@ -174,62 +158,9 @@ def get_korean_font():
 
 KOREAN_FONT_PATH = get_korean_font()
 
-# --- Core Logic Functions ---
 
-def search_festivals(area, sigungu, main_cat, medium_cat, small_cat):
-    # Step 1: Primary filtering by location from DB
-    loc_where_clauses = []
-    loc_params = []
 
-    if area and area != "전체":
-        area_code = AREA_CODE_MAP.get(area)
-        if area_code:
-            loc_where_clauses.append("areacode = ?")
-            loc_params.append(area_code)
-            if sigungu and sigungu != "전체":
-                sigungu_code = SIGUNGU_CODE_MAP.get(area, {}).get(sigungu)
-                if sigungu_code:
-                    loc_where_clauses.append("sigungucode = ?")
-                    loc_params.append(sigungu_code)
-
-    db_path = os.path.join(script_dir, "tour.db")
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    query = "SELECT title, firstimage FROM festivals"
-    if loc_where_clauses:
-        query += " WHERE " + " AND ".join(loc_where_clauses)
-        cursor.execute(query, loc_params)
-    else:
-        cursor.execute(query)
-        
-    db_results = cursor.fetchall()
-    conn.close()
-
-    # Step 2: Secondary filtering by category using pre-built map from JSON
-    is_cat_filtered = main_cat != "전체" or medium_cat != "전체" or small_cat != "전체"
-    if not is_cat_filtered:
-        final_results = db_results
-    else:
-        final_results = []
-        for row in db_results:
-            title = row[0]
-            # TITLE_TO_CAT_NAMES maps a title to its (main, medium, small) category names
-            cat_names = TITLE_TO_CAT_NAMES.get(title)
-            if not cat_names:
-                continue # This festival title is not in our JSON category mapping
-
-            # Check if the festival's categories match the filter
-            main_match = (main_cat == "전체" or main_cat == cat_names[0])
-            medium_match = (medium_cat == "전체" or medium_cat == cat_names[1])
-            small_match = (small_cat == "전체" or small_cat == cat_names[2])
-
-            if main_match and medium_match and small_match:
-                final_results.append(row)
-
-    results = sorted([(row[0], row[1] or NO_IMAGE_URL) for row in final_results])
-    total_pages = math.ceil(len(results) / PAGE_SIZE)
-    return results, 1, f"1 / {total_pages}", gr.update(visible=len(results) > 0)
+from src.application.supervisors.db_search_supervisor import db_search_graph
 
 def display_page(results, page):
     page = int(page)
@@ -267,13 +198,26 @@ def display_festival_details(evt: gr.SelectData, results, page_str):
     selected_title = results[global_index][0]
     details = search_festival_in_db(selected_title)
 
-    if not details: return "정보를 찾을 수 없습니다.", "", "", "", None
+    if not details:
+        return gr.update(value="정보를 찾을 수 없습니다."), None, None
 
-    basic_info = f"**축제명**: {details.get('title', 'N/A')}\n**주소**: {details.get('addr1', 'N/A')}\n**전화번호**: {details.get('tel', 'N/A')}"
-    detailed_info = f"**시작일**: {details.get('eventstartdate', 'N/A')}\n**종료일**: {details.get('eventenddate', 'N/A')}\n**행사 장소**: {details.get('eventplace', 'N/A')}"
-    overview_text = details.get('overview', '정보 없음')
-    event_content_text = details.get('행사내용', '정보 없음')
-    return basic_info, detailed_info, overview_text, event_content_text, selected_title
+    details_list = []
+    exclude_cols = [
+        'id', 'contentid', 'contenttypeid', 'lDongRegnCd', 'lDongSignguCd', 
+        'lclsSystm1', 'lclsSystm2', 'lclsSystm3', 'mlevel', 'cpyrhtDivCd',
+        'areacode', 'cat1', 'cat2', 'cat3', 'createdtime', 'mapx', 'mapy', 
+        'modifiedtime', 'sigungucode'
+    ]
+    for key, value in details.items():
+        if key in exclude_cols:
+            continue
+        if value is not None and str(value).strip() != '':
+            display_key = COLUMN_TRANSLATIONS.get(key, key)
+            details_list.append(f"**{display_key}**: {value}")
+    
+    details_text = "\n\n".join(details_list)
+
+    return gr.update(value=details_text), details.get('title'), details
 
 
 
@@ -632,6 +576,17 @@ async def analyze_sentiment(festival_name, num_reviews):
         yield tuple(outputs_to_clear)
 
 
+
+
+
+
+
+# --- Core Logic Functions ---
+
+
+
+
+
 # --- Gradio Interface ---
 
 with gr.Blocks(css=CUSTOM_CSS) as demo:
@@ -640,6 +595,9 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
     results_state = gr.State([])
     page_state = gr.State(1)
     selected_festival_state = gr.State()
+    selected_festival_details_state = gr.State()
+    recommended_facilities_state = gr.State([])
+    recommended_courses_state = gr.State([])
 
     with gr.Group():
         with gr.Row():
@@ -660,10 +618,18 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             next_button = gr.Button("다음 ▶")
 
     with gr.Accordion("축제 상세 정보", open=False) as details_accordion:
-        basic_info_output = gr.Markdown()
-        detailed_info_output = gr.Markdown()
-        overview_output = gr.Markdown()
-        content_output = gr.Markdown()
+        festival_details_output = gr.Markdown()
+
+    with gr.Accordion("좌표 기반 추천", open=False, visible=False) as recommend_accordion:
+        recommend_radius_slider = gr.Slider(minimum=500, maximum=20000, value=5000, step=500, label="반경 (미터)", interactive=True)
+        recommend_btn = gr.Button("추천 받기", variant="primary")
+        recommend_status = gr.Textbox(label="상태", interactive=False, visible=False)
+        gr.Markdown("### 추천 관광 시설")
+        recommend_facilities_gallery = gr.Gallery(label="추천 관광 시설", show_label=False, elem_id="recommend_facilities_gallery", columns=4, height="auto", object_fit="contain")
+        gr.Markdown("### 추천 관광 코스")
+        recommend_courses_gallery = gr.Gallery(label="추천 관광 코스", show_label=False, elem_id="recommend_courses_gallery", columns=4, height="auto", object_fit="contain")
+        with gr.Accordion("추천 장소 상세 정보", open=False, visible=False) as recommend_details_accordion:
+            recommend_details_output = gr.Markdown()
 
     with gr.Accordion("Naver 후기 요약 및 꿀팁", open=False, visible=False) as naver_review_accordion:
         with gr.Row():
@@ -759,9 +725,40 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
     medium_cat_dropdown.change(fn=update_small_cat, inputs=[main_cat_dropdown, medium_cat_dropdown], outputs=small_cat_dropdown)
 
     def run_search_and_display(area, sigungu, main_cat, medium_cat, small_cat):
-        results, page, page_str, is_visible = search_festivals(area, sigungu, main_cat, medium_cat, small_cat)
-        gallery, page_str_updated = display_page(results, page)
-        return results, gallery, page_str_updated, is_visible
+        initial_state = {
+            "search_type": "festival_search",
+            "area": area, "sigungu": sigungu, "main_cat": main_cat,
+            "medium_cat": medium_cat, "small_cat": small_cat
+        }
+        final_state = db_search_graph.invoke(initial_state)
+        results = final_state.get("results", [])
+        total_pages = math.ceil(len(results) / PAGE_SIZE)
+        
+        gallery, page_str_updated = display_page(results, 1)
+        return results, gallery, f"1 / {total_pages}", gr.update(visible=len(results) > 0)
+
+    def run_nearby_search(festival_details, radius_meters):
+        if not festival_details or not festival_details.get('mapx') or not festival_details.get('mapy'):
+            return [], [], gr.update(value="축제 좌표 정보가 없어 추천할 수 없습니다.", visible=True), [], []
+
+        initial_state = {
+            "search_type": "nearby_search",
+            "latitude": festival_details.get('mapy'),
+            "longitude": festival_details.get('mapx'),
+            "radius": radius_meters
+        }
+        final_state = db_search_graph.invoke(initial_state)
+        
+        facilities_recs = final_state.get("recommended_facilities", [])
+        courses_recs = final_state.get("recommended_courses", [])
+
+        if not facilities_recs and not courses_recs:
+            return [], [], gr.update(value=f"{radius_meters}m 내에 추천할 장소가 없습니다.", visible=True), [], []
+
+        facility_gallery_output = [(item.get('firstimage', NO_IMAGE_URL) or NO_IMAGE_URL, item['title']) for item in facilities_recs]
+        course_gallery_output = [(item.get('firstimage', NO_IMAGE_URL) or NO_IMAGE_URL, item['title']) for item in courses_recs]
+
+        return facilities_recs, courses_recs, facility_gallery_output, course_gallery_output, gr.update(visible=False)
 
     search_btn.click(
         fn=run_search_and_display,
@@ -776,11 +773,12 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
         fn=display_festival_details,
         inputs=[results_state, page_display],
         outputs=[
-            basic_info_output, detailed_info_output, overview_output, content_output, selected_festival_state
+            festival_details_output, selected_festival_state, selected_festival_details_state
         ]
     ).then(
         fn=lambda: (
             gr.update(open=True), # details_accordion
+            gr.update(visible=True), # recommend_accordion
             gr.update(visible=True), # naver_review_accordion
             gr.update(visible=True), # trend_accordion
             gr.update(visible=True), # wordcloud_accordion
@@ -788,6 +786,7 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
         ),
         outputs=[
             details_accordion,
+            recommend_accordion,
             naver_review_accordion,
             trend_accordion,
             wordcloud_accordion,
@@ -849,7 +848,17 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
         ]
     )
 
-    
+    recommend_btn.click(
+        fn=run_nearby_search,
+        inputs=[selected_festival_details_state, recommend_radius_slider],
+        outputs=[
+            recommended_facilities_state, 
+            recommended_courses_state,
+            recommend_facilities_gallery, 
+            recommend_courses_gallery, 
+            recommend_status
+        ]
+    )
 
     # Event handlers for pagination and individual blog details within sentiment analysis tab
     sentiment_blog_page_num_input.change(
@@ -896,6 +905,59 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             sentiment_individual_summary,
             sentiment_blog_detail_accordion
         ]
+    )
+
+    def display_recommend_details(evt: gr.SelectData, recommended_results):
+        if not evt or not recommended_results:
+            return gr.update(visible=False), gr.update(visible=False)
+
+        selected_item = recommended_results[evt.index]
+        
+        details = []
+        exclude_cols = [
+            'type', 'id', 'contentid', 'contenttypeid', 'lDongRegnCd', 'lDongSignguCd', 
+            'lclsSystm1', 'lclsSystm2', 'lclsSystm3', 'mlevel', 'cpyrhtDivCd',
+            'areacode', 'cat1', 'cat2', 'cat3', 'createdtime', 'mapx', 'mapy', 
+            'modifiedtime', 'sigungucode', 'sub_points' # also exclude the sub_points list itself from the main loop
+        ]
+
+        # Handle main info for both facilities and courses
+        for key, value in selected_item.items():
+            if key in exclude_cols:
+                continue
+            if value is not None and str(value).strip() != '':
+                display_key = COLUMN_TRANSLATIONS.get(key, key)
+                details.append(f"**{display_key}**: {value}")
+
+        # If it's a course, handle the sub_points specially
+        if 'sub_points' in selected_item and selected_item['sub_points']:
+            sub_points = selected_item['sub_points']
+            
+            all_subnames = [sp.get('subname') for sp in sub_points if sp.get('subname')]
+            if all_subnames:
+                # Remove duplicates while preserving order
+                unique_subnames = list(dict.fromkeys(all_subnames))
+                details.append(f"**세부 코스명**: {', '.join(unique_subnames)}")
+
+            all_overviews = [sp.get('subdetailoverview') for sp in sub_points if sp.get('subdetailoverview')]
+            if all_overviews:
+                overview_list_str = [f"{i+1}. {desc}" for i, desc in enumerate(all_overviews)]
+                details.append(f"**세부 코스개요**:\n" + "\n".join(overview_list_str))
+
+        details_text = "\n\n".join(details)
+
+        return gr.update(value=details_text), gr.update(visible=True, open=True)
+
+    recommend_facilities_gallery.select(
+        fn=display_recommend_details,
+        inputs=[recommended_facilities_state],
+        outputs=[recommend_details_output, recommend_details_accordion]
+    )
+
+    recommend_courses_gallery.select(
+        fn=display_recommend_details,
+        inputs=[recommended_courses_state],
+        outputs=[recommend_details_output, recommend_details_accordion]
     )
 
 if __name__ == "__main__":
