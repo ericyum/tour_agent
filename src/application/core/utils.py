@@ -9,8 +9,30 @@ from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 import traceback
 from src.infrastructure.llm_client import get_llm_client
+import logging # <--- logging 모듈 임포트
 
 PAGE_SIZE = 10
+
+# 로거 설정 함수 추가
+def get_logger(name):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    
+    # 핸들러가 이미 추가되었는지 확인하여 중복 추가 방지
+    if not logger.handlers:
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        
+        # 콘솔 핸들러
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        
+        # 파일 핸들러 (선택 사항: 로그를 파일로 저장하고 싶을 경우)
+        # file_handler = logging.FileHandler('app.log')
+        # file_handler.setFormatter(formatter)
+        # logger.addHandler(file_handler)
+        
+    return logger
 
 def change_page(full_df, page_num):
     if not isinstance(full_df, pd.DataFrame) or full_df.empty:

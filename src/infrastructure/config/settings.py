@@ -20,6 +20,30 @@ def setup_environment():
     else:
         print(f".env 파일을 찾을 수 없습니다: {dotenv_path}. API 키가 환경 변수에 설정되었는지 확인하세요.")
 
+class Settings:
+    """
+    애플리케이션 설정을 관리하는 클래스.
+    환경 변수에서 필요한 값들을 로드합니다.
+    """
+    def __init__(self):
+        self.NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
+        self.NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
+        self.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+        self.NAVER_TREND_CLIENT_ID = os.getenv("NAVER_TREND_CLIENT_ID")
+        self.NAVER_TREND_CLIENT_SECRET = os.getenv("NAVER_TREND_CLIENT_SECRET")
+
+        # 필요한 경우 여기에 다른 설정 값들을 추가합니다.
+
+        self._validate_settings()
+
+    def _validate_settings(self):
+        if not self.NAVER_CLIENT_ID or not self.NAVER_CLIENT_SECRET:
+            print("경고: NAVER_CLIENT_ID 또는 NAVER_CLIENT_SECRET이 설정되지 않았습니다.")
+        if not self.GOOGLE_API_KEY:
+            print("경고: GOOGLE_API_KEY가 설정되지 않았습니다.")
+        if not self.NAVER_TREND_CLIENT_ID or not self.NAVER_TREND_CLIENT_SECRET:
+            print("경고: NAVER_TREND_CLIENT_ID 또는 NAVER_TREND_CLIENT_SECRET이 설정되지 않았습니다.")
+
 def get_naver_api_keys():
     """네이버 API 키를 반환합니다."""
     client_id = os.getenv("NAVER_CLIENT_ID")

@@ -10,7 +10,7 @@ import pandas as pd
 from collections import Counter
 from datetime import datetime, timedelta
 # --- Environment Setup (must be first) ---
-from src.infrastructure.config.settings import setup_environment, get_google_api_key
+from src.infrastructure.config.settings import setup_environment, get_google_api_key, Settings
 setup_environment()
 
 # --- Matplotlib Backend Setup ---
@@ -30,7 +30,7 @@ except ImportError:
     WordCloud, plt, Okt, Image, ImageDraw, ImageFont, np = [None]*7
 
 # --- Custom Module Imports ---
-from src.infrastructure.persistence.database import load_data_to_db
+from src.infrastructure.persistence.database import get_db_connection, init_db
 from src.application.supervisors.naver_review_supervisor import NaverReviewSupervisor
 from src.infrastructure.external_services.naver_search.naver_review_api import get_naver_trend, search_naver_blog
 
@@ -45,7 +45,7 @@ from src.application.agents.common.rule_scorer import agent_rule_scorer_on_summa
 from src.application.core.graph import app_llm_graph
 from src.infrastructure.reporting.charts import create_donut_chart, create_stacked_bar_chart, create_sentence_score_bar_chart
 from src.infrastructure.reporting.wordclouds import create_sentiment_wordclouds
-from src.application.core.utils import get_season, save_df_to_csv, summarize_negative_feedback, create_driver, change_page
+from src.application.core.utils import get_season, save_df_to_csv, summarize_negative_feedback, create_driver, change_page, get_logger
 
 # --- Selenium Imports (for sentiment analysis only) ---
 from selenium.webdriver.chrome.service import Service
@@ -109,6 +109,13 @@ CATEGORY_TO_ICON_MAP = {
 CAT_NAME_TO_CODE = {'main': {}, 'medium': {}, 'small': {}}
 TITLE_TO_CAT_NAMES = {}
 
+settings = Settings()
+logger = get_logger(__name__)
+
+# Initialize the database
+init_db()
+
+# Load festival categories and maps
 def load_festival_categories_and_maps():
     global TITLE_TO_CAT_NAMES
     festivals_dir = os.path.join(script_dir, "festivals")
@@ -892,9 +899,7 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
     )
 
 if __name__ == "__main__":
-    print("\n[app.py] Forcing database creation/update...")
-    load_data_to_db()
-    print("[app.py] Database creation/update complete.")
+
     ALL_FESTIVAL_CATEGORIES = load_festival_categories_and_maps()
     
     demo.launch(allowed_paths=["assets"])
