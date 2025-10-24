@@ -4,3 +4,8 @@
 
 # Python cache
 __pycache__/
+
+*.img
+*.png
+*.jpg
+*.jpeg

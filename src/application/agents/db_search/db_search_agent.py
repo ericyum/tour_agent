@@ -53,7 +53,7 @@ def agent_festival_search(state: DBSearchState) -> DBSearchState:
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    query = "SELECT title, firstimage FROM festivals"
+    query = "SELECT title, firstimage, eventstartdate, eventenddate FROM festivals"
     if loc_where_clauses:
         query += " WHERE " + " AND ".join(loc_where_clauses)
         cursor.execute(query, loc_params)
@@ -85,7 +85,10 @@ def agent_festival_search(state: DBSearchState) -> DBSearchState:
                 final_results_tuples.append(row)
 
     # Format results into the structure expected by the UI
-    results = sorted([(row[0], row[1] or NO_IMAGE_URL) for row in final_results_tuples])
-    
-    state["results"] = results
+    results = []
+    for row in final_results_tuples:
+        # row will be (title, firstimage, eventstartdate, eventenddate)
+        results.append((row[0], row[1] or NO_IMAGE_URL, row[2], row[3]))
+
+    state["results"] = sorted(results, key=lambda x: x[0]) # Sort by title
     return state

@@ -6,6 +6,7 @@ playwright
 langchain-openai
 nltk
 requests
+requests
 langgraph
 langchain_core
 selenium

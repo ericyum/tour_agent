@@ -102,7 +102,32 @@ class NaverReviewSupervisor:
                         if content_element:
                             text_content = await content_element.inner_text()
                             if text_content.strip():
-                                break  # 내용 찾았으면 중단
+                                # 이미지 찾기
+                                images = await content_element.query_selector_all("img")
+                                for img in images:
+                                    # 네이버 블로그는 lazy loading을 사용하므로 data-lazy-src, data-src, src 순으로 확인
+                                    lazy_src = await img.get_attribute("data-lazy-src")
+                                    data_src = await img.get_attribute("data-src")
+                                    regular_src = await img.get_attribute("src")
+
+                                    src = lazy_src or data_src or regular_src
+
+                                    if (
+                                        src
+                                        and src.startswith("http")
+                                    ):
+                                        # Filter out emoticons/stickers
+                                        if "storep-phinf.pstatic.net" in src and "ogq_" in src:
+                                            continue
+                                        # Filter out map images
+                                        if "simg.pstatic.net" in src and "static.map" in src:
+                                            continue
+
+                                        # 썸네일 파라미터(?type=...)를 포함하여 원본 이미지 URL 확보
+                                        cleaned_src = src
+                                        if cleaned_src not in image_urls:
+                                            image_urls.append(cleaned_src)
+                                break  # 내용과 이미지를 찾았으면 중단
                     except Exception:
                         continue
 
@@ -114,7 +139,7 @@ class NaverReviewSupervisor:
                         [],
                     )
 
-                return text_content, image_urls # image_urls is not used in this context, but kept for consistency
+                return text_content, image_urls
 
         except Exception as e:
             return f"페이지에 접근하는 중 오류가 발생했습니다: {e}", []
