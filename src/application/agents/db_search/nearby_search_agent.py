@@ -25,17 +25,25 @@ def agent_nearby_search(state: DBSearchState) -> DBSearchState:
         try:
             distance = haversine(longitude, latitude, place_row['mapx'], place_row['mapy'])
             if distance <= float(radius):
-                facilities_recs.append(dict(place_row))
+                place_dict = dict(place_row)
+                place_dict['distance'] = distance  # Add distance to the dictionary
+                facilities_recs.append(place_dict)
         except (ValueError, TypeError):
             continue
 
     courses_recs_grouped = {}
+    min_course_distances = {}
     for place_row in courses:
         try:
             distance = haversine(longitude, latitude, place_row['mapx'], place_row['mapy'])
             if distance <= float(radius):
                 course_dict = dict(place_row)
                 content_id = course_dict['contentid']
+                
+                # Store the minimum distance for the entire course
+                if content_id not in min_course_distances or distance < min_course_distances[content_id]:
+                    min_course_distances[content_id] = distance
+
                 if content_id not in courses_recs_grouped:
                     courses_recs_grouped[content_id] = {
                         'main_info': course_dict,
@@ -49,6 +57,7 @@ def agent_nearby_search(state: DBSearchState) -> DBSearchState:
     for content_id, course_group in courses_recs_grouped.items():
         final_course_obj = course_group['main_info']
         final_course_obj['sub_points'] = sorted(course_group['sub_points'], key=lambda x: x.get('subnum', 0))
+        final_course_obj['distance'] = min_course_distances.get(content_id, float('inf')) # Add the min distance
         courses_recs.append(final_course_obj)
     
     state["recommended_facilities"] = facilities_recs

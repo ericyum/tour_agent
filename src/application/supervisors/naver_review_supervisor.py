@@ -15,42 +15,49 @@ class NaverReviewSupervisor:
     async def get_review_summary_and_tips(self, festival_name, num_reviews=5, return_full_text=False, return_meta=False):
         search_query = f"{festival_name} 후기"
         print(f"Searching Naver blogs for reviews of '{search_query}'...")
-        # Search more blogs initially to account for skips, e.g., up to 100 results
-        blog_results_meta = search_naver_blog(search_query, display=100)
-        
-        if not blog_results_meta:
-            return "Naver 후기를 찾을 수 없습니다.", []
 
         reviews_with_content = []
         consecutive_skips = 0
-        for review_meta in blog_results_meta:
-            if len(reviews_with_content) >= num_reviews:
-                break  # Stop if we have enough reviews
+        start_index = 1
+        max_results_to_scan = 100  # Scan up to 100 results
+        display_count = 20 # Fetch 20 at a time
+
+        while len(reviews_with_content) < num_reviews and start_index < max_results_to_scan:
+            blog_results_meta = search_naver_blog(search_query, display=display_count, start=start_index)
             
-            if consecutive_skips >= 3:
-                print(f"DEBUG: Skipped 3 consecutive blogs. Proceeding with {len(reviews_with_content)} reviews.")
+            if not blog_results_meta:
                 break
 
-            link = review_meta.get("link")
-            if link and "blog.naver.com" in link:
-                # Use the original scraper from tour_agent
-                text_content, _ = await self._scrape_blog_content(link) # Use internal scraper
-                if text_content and "본문 내용을 찾을 수 없습니다" not in text_content and "페이지에 접근하는 중 오류" not in text_content:
-                    # Validate content using LLM
-                    is_relevant = await self._is_relevant_review(festival_name, review_meta.get("title", ""), text_content)
-                    if is_relevant:
-                        print(f"DEBUG: Scraped content for '{review_meta.get('title')}': {text_content[:200]}...") # Print first 200 chars
-                        reviews_with_content.append({"title": review_meta.get("title", ""), "content": text_content, "link": review_meta.get("link", "")})
-                        consecutive_skips = 0 # Reset on success
+            for review_meta in blog_results_meta:
+                if len(reviews_with_content) >= num_reviews:
+                    break
+                
+                if consecutive_skips >= 3:
+                    print(f"DEBUG: Skipped 3 consecutive blogs. Proceeding with {len(reviews_with_content)} reviews.")
+                    break
+
+                link = review_meta.get("link")
+                if link and "blog.naver.com" in link:
+                    text_content, _ = await self._scrape_blog_content(link)
+                    if text_content and "본문 내용을 찾을 수 없습니다" not in text_content and "페이지에 접근하는 중 오류" not in text_content:
+                        is_relevant = await self._is_relevant_review(festival_name, review_meta.get("title", ""), text_content)
+                        if is_relevant:
+                            print(f"DEBUG: Scraped content for '{review_meta.get('title')}': {text_content[:200]}...")
+                            reviews_with_content.append({"title": review_meta.get("title", ""), "content": text_content, "link": review_meta.get("link", "")})
+                            consecutive_skips = 0
+                        else:
+                            print(f"DEBUG: Blog '{review_meta.get('title')}' deemed irrelevant by LLM validator. Skipping.")
+                            consecutive_skips += 1
                     else:
-                        print(f"DEBUG: Blog '{review_meta.get('title')}' deemed irrelevant by LLM validator. Skipping.")
+                        print(f"DEBUG: Failed to scrape content for '{review_meta.get('title')}' or content was empty/error. Skipping.")
                         consecutive_skips += 1
                 else:
-                    print(f"DEBUG: Failed to scrape content for '{review_meta.get('title')}' or content was empty/error. Skipping.")
                     consecutive_skips += 1
-            else:
-                consecutive_skips += 1
+            
+            if consecutive_skips >= 3:
+                break
 
+            start_index += display_count
 
         if not reviews_with_content:
             return "유효한 블로그 본문을 스크래핑할 수 없습니다.", []
@@ -62,7 +69,6 @@ class NaverReviewSupervisor:
                 full_texts = [review['content'] for review in reviews_with_content]
                 return "", full_texts
 
-        # Use LLM to summarize reviews
         llm_generated_summary, _ = await self._llm_summarize_reviews(festival_name, reviews_with_content)
         return llm_generated_summary, llm_generated_summary
 

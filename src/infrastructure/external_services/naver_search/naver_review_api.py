@@ -21,7 +21,7 @@ def clean_html(raw_html):
     cleantext = re.sub(cleanr, '', raw_html)
     return cleantext.strip()
 
-def search_naver_blog(query, display=5):
+def search_naver_blog(query, display=5, start=1):
     """네이버 블로그 검색 API를 호출하고 결과를 반환합니다."""
     if not NAVER_BLOG_CLIENT_ID or not NAVER_BLOG_CLIENT_SECRET:
         print("네이버 블로그 API 인증 정보가 .env 파일에 설정되지 않았습니다.")
@@ -35,7 +35,8 @@ def search_naver_blog(query, display=5):
     params = {
         "query": query,
         "display": display,
-        "sort": "sim"  # 관련도순 정렬
+        "sort": "sim",  # 관련도순 정렬
+        "start": start
     }
 
     try:

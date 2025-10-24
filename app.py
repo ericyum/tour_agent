@@ -239,6 +239,29 @@ def get_korean_font():
 
 KOREAN_FONT_PATH = get_korean_font()
 
+from src.application.use_cases.analysis_use_case import AnalysisUseCase
+
+analysis_use_case = AnalysisUseCase(
+    naver_supervisor=naver_supervisor,
+    font_path=KOREAN_FONT_PATH,
+    title_to_cat_map=TITLE_TO_CAT_NAMES,
+    cat_to_icon_map=CATEGORY_TO_ICON_MAP,
+    script_dir=script_dir
+)
+
+from src.application.use_cases.sentiment_analysis_use_case import SentimentAnalysisUseCase
+
+sentiment_analysis_use_case = SentimentAnalysisUseCase(
+    naver_supervisor=naver_supervisor,
+    script_dir=script_dir
+)
+
+from src.application.use_cases.ranking_use_case import RankingUseCase
+
+ranking_use_case = RankingUseCase(
+    naver_supervisor=naver_supervisor
+)
+
 
 from src.application.supervisors.db_search_supervisor import db_search_graph
 
@@ -248,12 +271,17 @@ def display_page(results, page):
     start_index = (page - 1) * PAGE_SIZE
     end_index = start_index + PAGE_SIZE
     page_results = results[start_index:end_index]
-    gallery_output = [(item[0], item[1]) for item in page_results]  # Corrected order
-    total_pages = math.ceil(len(results) / PAGE_SIZE)
     
-    # Update page buttons
-    page_buttons_updates = update_pagination_buttons(page, total_pages)
+    gallery_output = []
+    for item in page_results:
+        image = item.get("firstimage", NO_IMAGE_URL) or NO_IMAGE_URL
+        title = item.get("title", "제목 없음")
+        if "ranking_score" in item:
+            title = f"점수: {item.get('ranking_score', 'N/A')} - {title}"
+        gallery_output.append((image, title))
 
+    total_pages = math.ceil(len(results) / PAGE_SIZE)
+    page_buttons_updates = update_pagination_buttons(page, total_pages)
     return gallery_output, f"{page} / {total_pages}", *page_buttons_updates
 
 
@@ -294,51 +322,44 @@ def update_pagination_buttons(current_page, total_pages):
     return button_updates # This will be a list of 5 gr.update objects
 
 
-def search_festival_in_db(festival_name):
-    if not festival_name:
-        return None
-    db_path = os.path.join(script_dir, "tour.db")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT * FROM festivals WHERE title = ?", (festival_name,))
-        festival = cursor.fetchone()
-        return dict(festival) if festival else None
-    finally:
-        conn.close()
+from src.application.services.festival_service import get_festival_details_by_title
 
 
 def display_festival_details(evt: gr.SelectData, results, page_str):
     page = int(page_str.split("/")[0].strip())
     global_index = (page - 1) * PAGE_SIZE + evt.index
-    selected_title = results[global_index][0]
-    details = search_festival_in_db(selected_title)
+    
+    selected_item = results[global_index]
+    # The title in the results dict is clean, even if the gallery shows a score
+    original_title = selected_item.get("title", "")
+    
+    details = get_festival_details_by_title(original_title)
 
     if not details:
         return gr.update(value="정보를 찾을 수 없습니다."), None, None
 
     details_list = []
+    # Add the new scores to the details view if they exist
+    score_keys = {
+        "ranking_score": "종합 순위 점수",
+        "time_score": "시기성 점수",
+        "sentiment_score": "만족도 점수",
+        "quarterly_trend_score": "최근 화제성(90일)",
+        "yearly_trend_score": "연간 꾸준함(365일)"
+    }
+    for key, display_name in score_keys.items():
+        if key in selected_item:
+            details_list.append(f"**{display_name}**: {selected_item[key]}")
+
+    if details_list: # Add a separator if scores were added
+        details_list.append("---")
+
     exclude_cols = [
-        "id",
-        "contentid",
-        "contenttypeid",
-        "lDongRegnCd",
-        "lDongSignguCd",
-        "lclsSystm1",
-        "lclsSystm2",
-        "lclsSystm3",
-        "mlevel",
-        "cpyrhtDivCd",
-        "areacode",
-        "cat1",
-        "cat2",
-        "cat3",
-        "createdtime",
-        "mapx",
-        "mapy",
-        "modifiedtime",
-        "sigungucode",
+        "id", "contentid", "contenttypeid", "lDongRegnCd", "lDongSignguCd",
+        "lclsSystm1", "lclsSystm2", "lclsSystm3", "mlevel", "cpyrhtDivCd",
+        "areacode", "cat1", "cat2", "cat3", "createdtime", "mapx", "mapy",
+        "modifiedtime", "sigungucode", "ranking_score", "time_score", 
+        "sentiment_score", "quarterly_trend_score", "yearly_trend_score"
     ]
     for key, value in details.items():
         if key in exclude_cols:
@@ -368,662 +389,87 @@ async def get_naver_review_info(festival_name, num_reviews):
     yield gr.update(value=summary, visible=True), gr.update(visible=True, open=True)
 
 
-async def generate_trend_graphs(festival_name):
-    if not festival_name:
-        yield gr.update(visible=False), gr.update(
-            value="축제를 선택해주세요.", visible=True
-        ), None, None
-        return
-
-    if plt is None:
-        yield gr.update(visible=True, open=True), gr.update(
-            value="`matplotlib` 라이브러리가 설치되지 않았습니다.", visible=True
-        ), None, None
-        return
-
-    yield gr.update(visible=True, open=True), gr.update(
-        value="트렌드 그래프 생성 중...", visible=True
-    ), None, None
-
-    font_properties = (
-        font_manager.FontProperties(fname=KOREAN_FONT_PATH)
-        if KOREAN_FONT_PATH
-        else None
-    )
-    details = search_festival_in_db(festival_name)
-
-    # --- 1. 1-Year Trend Graph ---
-    today = datetime.today()
-    start_date_yearly = today - timedelta(days=365)
-    trend_data_yearly = get_naver_trend(festival_name, start_date_yearly, today)
-
-    fig_trend_yearly, ax_yearly = plt.subplots(figsize=(10, 5))
-    if trend_data_yearly:  # Check if list is not empty
-        df = pd.DataFrame(trend_data_yearly)
-        df["period"] = pd.to_datetime(df["period"])
-        ax_yearly.plot(df["period"], df["ratio"])
-        ax_yearly.set_title(
-            f"'{festival_name}' 최근 1년 검색량 트렌드",
-            fontproperties=font_properties,
-            fontsize=16,
-        )
-        ax_yearly.tick_params(axis="x", rotation=30)
+async def handle_generate_trend_graphs(festival_name):
+    yield gr.update(visible=True, open=True), gr.update(value="트렌드 그래프 생성 중...", visible=True), None, None
+    trend_image_yearly, trend_image_event, status_message = await analysis_use_case.generate_trend_graphs(festival_name)
+    if trend_image_yearly is None and trend_image_event is None:
+         yield gr.update(visible=True, open=True), gr.update(value=status_message, visible=True), None, None
     else:
-        ax_yearly.text(
-            0.5,
-            0.5,
-            "트렌드 데이터 없음",
-            ha="center",
-            va="center",
-            fontproperties=font_properties,
-        )
-    plt.tight_layout()
-    buf_trend_yearly = io.BytesIO()
-    fig_trend_yearly.savefig(buf_trend_yearly, format="png")
-    trend_image_yearly = Image.open(buf_trend_yearly)
-    plt.close(fig_trend_yearly)
-
-    # --- 2. Event-Period Trend Graph ---
-    fig_trend_event, ax_event = plt.subplots(figsize=(10, 5))
-    if details and details.get("eventstartdate"):
-        try:
-            date_str = str(int(details.get("eventstartdate")))
-        except (ValueError, TypeError):
-            date_str = str(details.get("eventstartdate"))
-
-        center_date = pd.to_datetime(date_str, errors="coerce")
-
-        if pd.notna(center_date):
-            graph_start = center_date - timedelta(days=7)
-            graph_end = center_date + timedelta(days=7)
-
-            trend_data_event = get_naver_trend(festival_name, graph_start, graph_end)
-            if trend_data_event:  # Check if list is not empty
-                df_event = pd.DataFrame(trend_data_event)
-                df_event["period"] = pd.to_datetime(df_event["period"])
-                ax_event.plot(df_event["period"], df_event["ratio"])
-                ax_event.axvline(
-                    x=center_date, color="r", linestyle="--", label="Festival Start"
-                )
-                ax_event.legend()
-                ax_event.tick_params(axis="x", rotation=30)
-            else:
-                ax_event.text(
-                    0.5,
-                    0.5,
-                    "기간 트렌드 데이터 없음",
-                    ha="center",
-                    va="center",
-                    fontproperties=font_properties,
-                )
-        else:
-            ax_event.text(
-                0.5,
-                0.5,
-                "날짜 형식 오류",
-                ha="center",
-                va="center",
-                fontproperties=font_properties,
-            )
-    else:
-        ax_event.text(
-            0.5,
-            0.5,
-            "축제 시작일 정보 없음",
-            ha="center",
-            va="center",
-            fontproperties=font_properties,
-        )
-
-    ax_event.set_title(
-        f"'{festival_name}' 축제 시작일 중심 트렌드",
-        fontproperties=font_properties,
-        fontsize=16,
-    )
-    plt.tight_layout()
-    buf_trend_event = io.BytesIO()
-    fig_trend_event.savefig(buf_trend_event, format="png")
-    trend_image_event = Image.open(buf_trend_event)
-    plt.close(fig_trend_event)
-
-    yield gr.update(visible=True, open=True), gr.update(
-        visible=False
-    ), trend_image_yearly, trend_image_event
+        yield gr.update(visible=True, open=True), gr.update(visible=False), trend_image_yearly, trend_image_event
 
 
-async def generate_word_cloud(festival_name, num_reviews):
-    if not festival_name:
-        yield gr.update(visible=False), gr.update(
-            value="축제를 선택해주세요.", visible=True
-        ), None
-        return
-
-    if WordCloud is None or Okt is None or np is None:
-        yield gr.update(visible=True, open=True), gr.update(
-            value="`wordcloud`, `konlpy`, 또는 `numpy` 라이브러리가 설치되지 않았습니다.",
-            visible=True,
-        ), None
-        return
-
-    yield gr.update(visible=True, open=True), gr.update(
-        value=f"워드 클라우드 생성 중... ({num_reviews}개)", visible=True
-    ), None
-
-    main_cat_tuple = TITLE_TO_CAT_NAMES.get(festival_name)
-    main_cat = main_cat_tuple[0] if main_cat_tuple else None
-    icon_name = None
-    if main_cat:
-        normalized_cat_name = main_cat.replace(" ", "")
-        icon_name = CATEGORY_TO_ICON_MAP.get(normalized_cat_name)
-
-    mask_array = None
-    if icon_name:
-        path = os.path.join(script_dir, "assets", f"{icon_name}.png")
-        if os.path.exists(path):
-            try:
-                icon_image = Image.open(path).convert("L")
-                mask_array = np.array(icon_image)
-                mask_array = 255 - mask_array  # This inverts the mask
-                print(
-                    f"DEBUG: Mask array min value: {mask_array.min()}, max value: {mask_array.max()}"
-                )
-                non_white_pixels = np.sum(mask_array < 255)
-                total_pixels = mask_array.size
-                print(
-                    f"DEBUG: Percentage of non-white pixels in mask: {non_white_pixels / total_pixels * 100:.2f}%"
-                )
-            except Exception as e:
-                print(f"Error loading mask image: {e}")
-
-    stopwords = {
-        "축제",
-        "오늘",
-        "여기",
-        "저희",
-        "이번",
-        "진짜",
-        "정말",
-        "완전",
-        "후기",
-        "위해",
-        "때문",
-        "하나",
-    }
-    _, review_texts = await naver_supervisor.get_review_summary_and_tips(
-        festival_name, num_reviews=num_reviews, return_full_text=True
-    )
-
-    wc_image = None
-    if review_texts:
-        nouns = [
-            word
-            for text in review_texts
-            for word in okt.nouns(text)
-            if len(word) > 1 and word not in stopwords
-        ]
-        counts = Counter(nouns)
-        if counts:
-            wc = WordCloud(
-                font_path=KOREAN_FONT_PATH,
-                background_color="white",
-                mask=mask_array,
-                contour_color="steelblue",
-                contour_width=1,
-            ).generate_from_frequencies(counts)
-            wc_image = wc.to_image()
-
+async def handle_generate_word_cloud(festival_name, num_reviews):
+    yield gr.update(visible=True, open=True), gr.update(value=f"워드 클라우드 생성 중... ({num_reviews}개)", visible=True), None
+    wc_image, status_message = await analysis_use_case.generate_word_cloud(festival_name, num_reviews)
     if wc_image is None:
-        wc_image = Image.new("RGB", (800, 400), "white")
-        draw = ImageDraw.Draw(wc_image)
-        try:
-            font = ImageFont.truetype(KOREAN_FONT_PATH, 20)
-        except:
-            font = ImageFont.load_default()
-        draw.text((300, 180), "추출된 단어 없음", font=font, fill="black")
-
-    yield gr.update(visible=True, open=True), gr.update(visible=False), wc_image
+        yield gr.update(visible=True, open=True), gr.update(value=status_message, visible=True), None
+    else:
+        yield gr.update(visible=True, open=True), gr.update(visible=False), wc_image
 
 
-async def scrape_festival_images(festival_name):
-    if not festival_name:
-        return gr.update(value=None, visible=False), gr.update(visible=False), ""
-
-    # --- 이미지 저장 폴더 설정 및 초기화 ---
-    image_save_dir = os.path.join(script_dir, "temp_img")
-    if os.path.exists(image_save_dir):
-        shutil.rmtree(image_save_dir)
-    os.makedirs(image_save_dir, exist_ok=True)
-
-    blog_reviews = search_naver_blog(f"{festival_name} 후기", display=10)
-    if not blog_reviews:
-        return (
-            gr.update(value=None, visible=True),
-            gr.update(visible=True, open=True),
-            "",
-        )
-
-    all_image_urls = []
-    for review in blog_reviews:
-        link = review.get("link")
-        if link and "blog.naver.com" in link:
-            print(f"Processing blog: {link}")
-            text_content, image_urls = await naver_supervisor._scrape_blog_content(link)
-            if text_content and "본문 내용을 찾을 수 없습니다" not in text_content:
-                is_relevant = await naver_supervisor._is_relevant_review(
-                    festival_name, review.get("title", ""), text_content
-                )
-                if is_relevant:
-                    all_image_urls.extend(image_urls)
-
-    local_image_paths = []
-    for i, img_url in enumerate(all_image_urls):
-        try:
-            response = requests.get(img_url, stream=True, timeout=10)
-            response.raise_for_status()
-
-            file_ext = os.path.splitext(img_url.split("?")[0])[-1]
-            if not file_ext or len(file_ext) > 5:
-                file_ext = ".jpg"
-
-            file_name = f"image_{i+1}{file_ext}"
-            file_path = os.path.join(image_save_dir, file_name)
-
-            with open(file_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            local_image_paths.append(file_path)
-        except requests.exceptions.RequestException as e:
-            print(f"이미지 다운로드 실패: {img_url}, 오류: {e}")
-            continue
-
-    return (
-        gr.update(value=local_image_paths, visible=True),
-        gr.update(visible=True, open=True),
-        "\n".join(all_image_urls),
-    )
+async def handle_scrape_images(festival_name, num_blogs):
+    local_image_paths, urls = await analysis_use_case.scrape_festival_images(festival_name, num_blogs)
+    return gr.update(value=local_image_paths, visible=True), gr.update(visible=True, open=True), urls
 
 
-async def analyze_sentiment(festival_name, num_reviews):
+async def handle_analyze_sentiment(festival_name, num_reviews):
     outputs_to_clear = [
-        gr.update(open=True),  # sentiment_accordion
-        "",  # sentiment_status
-        gr.update(visible=False),  # sentiment_negative_summary
-        gr.update(visible=False),  # sentiment_overall_chart
-        gr.update(visible=False),  # sentiment_summary
-        gr.update(visible=False),  # sentiment_overall_csv
-        gr.update(visible=False),  # sentiment_spring_chart
-        gr.update(visible=False),  # sentiment_summer_chart
-        gr.update(visible=False),  # sentiment_autumn_chart
-        gr.update(visible=False),  # sentiment_winter_chart
-        gr.update(visible=False),  # sentiment_spring_pos_wc
-        gr.update(visible=False),  # sentiment_spring_neg_wc
-        gr.update(visible=False),  # sentiment_summer_pos_wc
-        gr.update(visible=False),  # sentiment_summer_neg_wc
-        gr.update(visible=False),  # sentiment_autumn_pos_wc
-        gr.update(visible=False),  # sentiment_autumn_neg_wc
-        gr.update(visible=False),  # sentiment_winter_pos_wc
-        gr.update(visible=False),  # sentiment_winter_neg_wc
-        None,  # sentiment_df_output
-        None,  # blog_results_df_state
-        None,  # blog_judgments_state
-        1,  # sentiment_blog_page_num_input
-        "/ 1",  # sentiment_blog_total_pages_output
-        gr.update(visible=False),  # sentiment_blog_list_csv
-        gr.update(visible=False),  # sentiment_individual_summary
-        gr.update(visible=False),  # sentiment_individual_donut_chart
-        gr.update(visible=False),  # sentiment_individual_score_chart
-        gr.update(visible=False, open=False),  # sentiment_blog_detail_accordion
+        gr.update(open=True), gr.update(value=""), gr.update(visible=False), gr.update(visible=False),
+        gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+        gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+        gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+        gr.update(visible=False), gr.update(visible=False), None, None, None, 1, "/ 1",
+        gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+        gr.update(visible=False, open=False),
     ]
-
+    
     if not festival_name:
-        outputs_to_clear[1] = "축제를 선택해주세요."
+        outputs_to_clear[1] = gr.update(value="축제를 선택해주세요.")
         yield tuple(outputs_to_clear)
         return
 
     try:
-        outputs_to_clear[1] = "블로그 검색 중..."
+        outputs_to_clear[1] = gr.update(value="블로그 검색 및 분석 중...")
         yield tuple(outputs_to_clear)
 
-        search_keyword = f"{festival_name} 후기"
+        result = await sentiment_analysis_use_case.analyze_sentiment(festival_name, num_reviews)
 
-        blog_results_list = []
-        all_negative_sentences = []
-        seasonal_aspect_pairs = {
-            "봄": [],
-            "여름": [],
-            "가을": [],
-            "겨울": [],
-            "정보없음": [],
-        }
-        seasonal_texts = {"봄": [], "여름": [], "가을": [], "겨울": [], "정보없음": []}
-        seasonal_data = {
-            "봄": {"pos": 0, "neg": 0},
-            "여름": {"pos": 0, "neg": 0},
-            "가을": {"pos": 0, "neg": 0},
-            "겨울": {"pos": 0, "neg": 0},
-            "정보없음": {"pos": 0, "neg": 0},
-        }
-        total_pos, total_neg, total_strong_pos, total_strong_neg = 0, 0, 0, 0
+        initial_page_df, current_page, total_pages_str = change_page(result["blog_df"], 1)
 
-        api_results = search_naver_blog(search_keyword, display=num_reviews + 10)
-        if not api_results:
-            outputs_to_clear[1] = (
-                f"'{search_keyword}'에 대한 네이버 블로그를 찾을 수 없습니다."
-            )
-            yield tuple(outputs_to_clear)
-            return
-
-        candidate_blogs = []
-        for item in api_results:
-            if "blog.naver.com" in item["link"]:
-                item["title"] = re.sub(r"<[^>]+>", "", item["title"]).strip()
-                if item["title"] and item["link"]:
-                    candidate_blogs.append(item)
-            if len(candidate_blogs) >= num_reviews:
-                break
-
-        if not candidate_blogs:
-            outputs_to_clear[1] = (
-                f"'{search_keyword}'에 대한 유효한 블로그 후보를 찾지 못했습니다."
-            )
-            yield tuple(outputs_to_clear)
-            return
-
-        valid_blogs_data = []
-        blog_judgments_list = []
-        all_negative_sentences = []
-        seasonal_aspect_pairs = {
-            "봄": [],
-            "여름": [],
-            "가을": [],
-            "겨울": [],
-            "정보없음": [],
-        }
-        seasonal_texts = {"봄": [], "여름": [], "가을": [], "겨울": [], "정보없음": []}
-        seasonal_data = {
-            "봄": {"pos": 0, "neg": 0},
-            "여름": {"pos": 0, "neg": 0},
-            "가을": {"pos": 0, "neg": 0},
-            "겨울": {"pos": 0, "neg": 0},
-            "정보없음": {"pos": 0, "neg": 0},
-        }
-        total_pos, total_neg, total_strong_pos, total_strong_neg = 0, 0, 0, 0
-
-        for i, blog_data in enumerate(candidate_blogs):
-            outputs_to_clear[1] = (
-                f"블로그 분석 중... ({len(valid_blogs_data)}/{num_reviews} 완료, {i+1}/{len(candidate_blogs)} 확인)"
-            )
-            yield tuple(outputs_to_clear)
-
-            try:
-                content, _ = await naver_supervisor._scrape_blog_content(
-                    blog_data["link"]
-                )
-                if not content or "오류" in content or "찾을 수 없습니다" in content:
-                    continue
-
-                max_content_length = 30000
-                if len(content) > max_content_length:
-                    content = content[:max_content_length] + "... (내용 일부 생략)"
-
-                final_state = app_llm_graph.invoke(
-                    {
-                        "original_text": content,
-                        "keyword": festival_name,
-                        "title": blog_data["title"],
-                        "log_details": False,
-                        "re_summarize_count": 0,
-                        "is_relevant": False,
-                    }
-                )
-
-                if not final_state or not final_state.get("is_relevant"):
-                    continue
-
-                judgments = final_state.get("final_judgments", [])
-                if not judgments:
-                    continue
-
-                season = get_season(blog_data.get("postdate", ""))
-                seasonal_texts[season].append(content)
-
-                aspect_pairs = final_state.get("aspect_sentiment_pairs", [])
-                if aspect_pairs:
-                    seasonal_aspect_pairs[season].extend(aspect_pairs)
-
-                blog_judgments_list.append(judgments)
-                pos_count = sum(
-                    1 for res in judgments if res["final_verdict"] == "긍정"
-                )
-                neg_count = sum(
-                    1 for res in judgments if res["final_verdict"] == "부정"
-                )
-
-                strong_pos_count = sum(
-                    1
-                    for res in judgments
-                    if res["final_verdict"] == "긍정" and res["score"] >= 1.0
-                )
-                strong_neg_count = sum(
-                    1
-                    for res in judgments
-                    if res["final_verdict"] == "부정" and res["score"] < -1.0
-                )
-
-                total_pos += pos_count
-                total_neg += neg_count
-                total_strong_pos += strong_pos_count
-                total_strong_neg += strong_neg_count
-                all_negative_sentences.extend(
-                    [
-                        res["sentence"]
-                        for res in judgments
-                        if res["final_verdict"] == "부정"
-                    ]
-                )
-
-                seasonal_data[season]["pos"] += pos_count
-                seasonal_data[season]["neg"] += neg_count
-
-                sentiment_frequency = pos_count + neg_count
-                sentiment_score = (
-                    (
-                        (strong_pos_count - strong_neg_count) / sentiment_frequency * 50
-                        + 50
-                    )
-                    if sentiment_frequency > 0
-                    else 50.0
-                )
-                pos_perc = (
-                    (pos_count / sentiment_frequency * 100)
-                    if sentiment_frequency > 0
-                    else 0.0
-                )
-                neg_perc = (
-                    (neg_count / sentiment_frequency * 100)
-                    if sentiment_frequency > 0
-                    else 0.0
-                )
-
-                blog_results_list.append(
-                    {
-                        "블로그 제목": blog_data["title"],
-                        "링크": blog_data["link"],
-                        "감성 빈도": sentiment_frequency,
-                        "감성 점수": f"{sentiment_score:.1f}",
-                        "긍정 문장 수": pos_count,
-                        "부정 문장 수": neg_count,
-                        "긍정 비율 (%)": f"{pos_perc:.1f}",
-                        "부정 비율 (%)": f"{neg_perc:.1f}",
-                        "긍/부정 문장 요약": "\n---\n".join(
-                            [
-                                f"[{res['final_verdict']}] {res['sentence']}"
-                                for res in judgments
-                            ]
-                        ),
-                    }
-                )
-                valid_blogs_data.append(blog_data)
-            except Exception as e:
-                print(
-                    f"블로그 분석 중 오류 ({festival_name}, {blog_data.get('link', 'N/A')}): {e}"
-                )
-                traceback.print_exc()
-                continue
-
-        if not valid_blogs_data:
-            outputs_to_clear[1] = (
-                f"'{festival_name}'에 대한 유효한 후기 블로그를 찾지 못했습니다."
-            )
-            yield tuple(outputs_to_clear)
-            return
-
-        total_sentiment_frequency = total_pos + total_neg
-        total_sentiment_score = (
-            (
-                (total_strong_pos - total_strong_neg) / total_sentiment_frequency * 50
-                + 50
-            )
-            if total_sentiment_frequency > 0
-            else 50.0
-        )
-
-        neg_summary_text = summarize_negative_feedback(all_negative_sentences)
-        overall_summary_text = f"""- **긍정 문장 수**: {total_pos}개
-- **부정 문장 수**: {total_neg}개
-- **감성어 빈도 (긍정+부정)**: {total_sentiment_frequency}개
-- **감성 점수**: {total_sentiment_score:.1f}점 (0~100점)"""
-
-        summary_df = pd.DataFrame(
-            [
-                {
-                    "축제명": festival_name,
-                    "감성 빈도": total_sentiment_frequency,
-                    "감성 점수": f"{total_sentiment_score:.1f}",
-                    "긍정 문장 수": total_pos,
-                    "부정 문장 수": total_neg,
-                }
-            ]
-        )
-        summary_csv = save_df_to_csv(summary_df, "overall_summary", festival_name)
-        blog_df = pd.DataFrame(blog_results_list)
-        blog_list_csv = save_df_to_csv(blog_df, "blog_list", festival_name)
-
-        initial_page_df, current_page, total_pages_str = change_page(blog_df, 1)
-
-        seasonal_pos_wc_paths = {}
-        seasonal_neg_wc_paths = {}
-        for season, pairs in seasonal_aspect_pairs.items():
-            season_en = CATEGORY_TO_ICON_MAP.get(
-                get_season(
-                    pairs[0]["postdate"]
-                    if pairs and "postdate" in pairs[0]
-                    else "2000-01-01"
-                )
-            )
-            if pairs and season_en:
-                mask_path = os.path.abspath(
-                    os.path.join(script_dir, "assets", f"mask_{season_en}.png")
-                )
-                pos_path, neg_path = create_sentiment_wordclouds(
-                    pairs, f"{festival_name}_{season}", mask_path=mask_path
-                )
-                seasonal_pos_wc_paths[season] = pos_path
-                seasonal_neg_wc_paths[season] = neg_path
-            else:
-                seasonal_pos_wc_paths[season] = None
-                seasonal_neg_wc_paths[season] = None
+        seasonal_charts = result["seasonal_charts"]
+        seasonal_pos_wc = result["seasonal_pos_wc_paths"]
+        seasonal_neg_wc = result["seasonal_neg_wc_paths"]
 
         yield (
-            gr.update(visible=True, open=True),
-            "분석 완료",
-            gr.update(value=neg_summary_text, visible=bool(neg_summary_text)),
-            gr.update(
-                value=create_donut_chart(
-                    total_pos, total_neg, f"{festival_name} 전체 후기 요약"
-                ),
-                visible=True,
-            ),
-            gr.update(value=overall_summary_text, visible=True),
-            gr.update(value=summary_csv, visible=summary_csv is not None),
-            gr.update(
-                value=create_stacked_bar_chart(
-                    seasonal_data.get("봄", {}).get("pos", 0),
-                    seasonal_data.get("봄", {}).get("neg", 0),
-                    "봄 시즌",
-                ),
-                visible=seasonal_data.get("봄", {}).get("pos", 0) > 0
-                or seasonal_data.get("봄", {}).get("neg", 0) > 0,
-            ),
-            gr.update(
-                value=create_stacked_bar_chart(
-                    seasonal_data.get("여름", {}).get("pos", 0),
-                    seasonal_data.get("여름", {}).get("neg", 0),
-                    "여름 시즌",
-                ),
-                visible=seasonal_data.get("여름", {}).get("pos", 0) > 0
-                or seasonal_data.get("여름", {}).get("neg", 0) > 0,
-            ),
-            gr.update(
-                value=create_stacked_bar_chart(
-                    seasonal_data.get("가을", {}).get("pos", 0),
-                    seasonal_data.get("가을", {}).get("neg", 0),
-                    "가을 시즌",
-                ),
-                visible=seasonal_data.get("가을", {}).get("pos", 0) > 0
-                or seasonal_data.get("가을", {}).get("neg", 0) > 0,
-            ),
-            gr.update(
-                value=create_stacked_bar_chart(
-                    seasonal_data.get("겨울", {}).get("pos", 0),
-                    seasonal_data.get("겨울", {}).get("neg", 0),
-                    "겨울 시즌",
-                ),
-                visible=seasonal_data.get("겨울", {}).get("pos", 0) > 0
-                or seasonal_data.get("겨울", {}).get("neg", 0) > 0,
-            ),
-            gr.update(
-                value=seasonal_pos_wc_paths.get("봄"),
-                visible=seasonal_pos_wc_paths.get("봄") is not None,
-            ),
-            gr.update(
-                value=seasonal_neg_wc_paths.get("봄"),
-                visible=seasonal_neg_wc_paths.get("봄") is not None,
-            ),
-            gr.update(
-                value=seasonal_pos_wc_paths.get("여름"),
-                visible=seasonal_pos_wc_paths.get("여름") is not None,
-            ),
-            gr.update(
-                value=seasonal_neg_wc_paths.get("여름"),
-                visible=seasonal_neg_wc_paths.get("여름") is not None,
-            ),
-            gr.update(
-                value=seasonal_pos_wc_paths.get("가을"),
-                visible=seasonal_pos_wc_paths.get("가을") is not None,
-            ),
-            gr.update(
-                value=seasonal_neg_wc_paths.get("가을"),
-                visible=seasonal_neg_wc_paths.get("가을") is not None,
-            ),
-            gr.update(
-                value=seasonal_pos_wc_paths.get("겨울"),
-                visible=seasonal_pos_wc_paths.get("겨울") is not None,
-            ),
-            gr.update(
-                value=seasonal_neg_wc_paths.get("겨울"),
-                visible=seasonal_neg_wc_paths.get("겨울") is not None,
-            ),
-            initial_page_df,
-            blog_df,
-            blog_judgments_list,
-            current_page,
-            total_pages_str,
-            gr.update(value=blog_list_csv, visible=blog_list_csv is not None),
-            gr.update(visible=False),  # individual_summary
-            gr.update(visible=False),  # individual_donut_chart
-            gr.update(visible=False),  # individual_score_chart
-            gr.update(visible=False, open=False),  # individual_detail_accordion
+            gr.update(visible=True, open=True), # sentiment_accordion
+            "분석 완료", # sentiment_status
+            gr.update(value=result["neg_summary_text"], visible=bool(result["neg_summary_text"])), # sentiment_negative_summary
+            gr.update(value=result["overall_chart"], visible=True), # sentiment_overall_chart
+            gr.update(value=result["overall_summary_text"], visible=True), # sentiment_summary
+            gr.update(value=result["summary_csv_path"], visible=result["summary_csv_path"] is not None), # sentiment_overall_csv
+            
+            gr.update(value=seasonal_charts.get("봄"), visible="봄" in seasonal_charts),
+            gr.update(value=seasonal_charts.get("여름"), visible="여름" in seasonal_charts),
+            gr.update(value=seasonal_charts.get("가을"), visible="가을" in seasonal_charts),
+            gr.update(value=seasonal_charts.get("겨울"), visible="겨울" in seasonal_charts),
+
+            gr.update(value=seasonal_pos_wc.get("봄"), visible="봄" in seasonal_pos_wc),
+            gr.update(value=seasonal_neg_wc.get("봄"), visible="봄" in seasonal_neg_wc),
+            gr.update(value=seasonal_pos_wc.get("여름"), visible="여름" in seasonal_pos_wc),
+            gr.update(value=seasonal_neg_wc.get("여름"), visible="여름" in seasonal_neg_wc),
+            gr.update(value=seasonal_pos_wc.get("가을"), visible="가을" in seasonal_pos_wc),
+            gr.update(value=seasonal_neg_wc.get("가을"), visible="가을" in seasonal_neg_wc),
+            gr.update(value=seasonal_pos_wc.get("겨울"), visible="겨울" in seasonal_pos_wc),
+            gr.update(value=seasonal_neg_wc.get("겨울"), visible="겨울" in seasonal_neg_wc),
+            
+            initial_page_df, # sentiment_df_output
+            result["blog_df"], # blog_results_df_state
+            result["blog_judgments_list"], # blog_judgments_state
+            current_page, # sentiment_blog_page_num_input
+            total_pages_str, # sentiment_blog_total_pages_output
+            gr.update(value=result["blog_list_csv_path"], visible=result["blog_list_csv_path"] is not None), # sentiment_blog_list_csv
+            
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False, open=False),
         )
 
     except Exception as e:
@@ -1079,7 +525,29 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
                 value="전체",
                 interactive=True,
             )
-    search_btn = gr.Button("검색", variant="primary")
+    with gr.Row():
+        search_btn = gr.Button("검색", variant="primary", scale=1)
+        rank_festivals_btn = gr.Button("축제 순위 보기", scale=1)
+        num_reviews_festival_ranking = gr.Slider(
+            minimum=1,
+            maximum=50,
+            value=10,
+            step=1,
+            label="축제 순위용 리뷰 수",
+            interactive=True,
+            scale=2,
+        )
+        festival_ranking_top_n_slider = gr.Slider(
+            minimum=1,
+            maximum=5,
+            value=3,
+            step=1,
+            label="표시할 순위 수",
+            interactive=True,
+            scale=1,
+        )
+
+    festival_ranking_report = gr.Markdown(visible=False)
 
     with gr.Column(visible=False) as results_area:
         festival_gallery = gr.Gallery(
@@ -1106,7 +574,16 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
 
     with gr.Accordion("축제 상세 정보", open=False) as details_accordion:
         festival_details_output = gr.Markdown()
-        image_collect_button = gr.Button("이미지 수집하기")
+        with gr.Row():
+            num_blogs_for_images = gr.Slider(
+                minimum=1,
+                maximum=100,
+                value=5,
+                step=1,
+                label="이미지 수집 대상 블로그 수",
+                interactive=True,
+            )
+            image_collect_button = gr.Button("이미지 수집하기")
 
     with gr.Accordion(
         "이미지 모아보기", open=False, visible=False
@@ -1186,7 +663,7 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
         with gr.Row():
             num_reviews_naver_summary = gr.Slider(
                 minimum=1,
-                maximum=20,
+                maximum=100,
                 value=5,
                 step=1,
                 label="분석할 후기 수 (네이버 요약)",
@@ -1378,393 +855,25 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
         outputs=[festival_gallery, page_display, page_button_1, page_button_2, page_button_3, page_button_4, page_button_5]
     )
 
-    def get_trend_score(keyword):
-        if not keyword:
-            return 0
-
-        today = datetime.today()
-        start_date = today - timedelta(days=90)  # Last 90 days
-        trend_data = get_naver_trend(keyword, start_date, today)
-
-        if not trend_data:
-            return 0
-
-        df = pd.DataFrame(trend_data)
-        if "ratio" in df.columns and not df["ratio"].empty:
-            # Return the average ratio as the score
-            return df["ratio"].mean()
-
-        return 0
-
-    async def get_sentiment_score(keyword, num_reviews):
-        if not keyword:
-            return 50.0, []  # Return a neutral score and empty list
-
-        search_keyword = f"{keyword} 후기"
-
-        api_results = search_naver_blog(search_keyword, display=num_reviews + 10)
-        if not api_results:
-            return 50.0, []
-
-        candidate_blogs = []
-        for item in api_results:
-            if "blog.naver.com" in item["link"]:
-                item["title"] = re.sub(r"<[^>]+>", "", item["title"]).strip()
-                if item["title"] and item["link"]:
-                    candidate_blogs.append(item)
-            if len(candidate_blogs) >= num_reviews:
-                break
-
-        if not candidate_blogs:
-            return 50.0, []
-
-        total_strong_pos = 0
-        total_strong_neg = 0
-        total_sentiment_frequency = 0
-        all_positive_judgments = []
-
-        for blog_data in candidate_blogs:
-            try:
-                content, _ = await naver_supervisor._scrape_blog_content(
-                    blog_data["link"]
-                )
-                if not content or "오류" in content or "찾을 수 없습니다" in content:
-                    continue
-
-                max_content_length = 30000
-                if len(content) > max_content_length:
-                    content = content[:max_content_length]
-
-                final_state = app_llm_graph.invoke(
-                    {
-                        "original_text": content,
-                        "keyword": keyword,
-                        "title": blog_data["title"],
-                        "log_details": False,
-                        "re_summarize_count": 0,
-                        "is_relevant": False,
-                    }
-                )
-
-                if not final_state or not final_state.get("is_relevant"):
-                    continue
-
-                judgments = final_state.get("final_judgments", [])
-                if not judgments:
-                    continue
-
-                all_positive_judgments.extend(
-                    [j for j in judgments if j["final_verdict"] == "긍정"]
-                )
-
-                pos_count = sum(
-                    1 for res in judgments if res["final_verdict"] == "긍정"
-                )
-                neg_count = sum(
-                    1 for res in judgments if res["final_verdict"] == "부정"
-                )
-                strong_pos_count = sum(
-                    1
-                    for res in judgments
-                    if res["final_verdict"] == "긍정" and res["score"] >= 1.0
-                )
-                strong_neg_count = sum(
-                    1
-                    for res in judgments
-                    if res["final_verdict"] == "부정" and res["score"] < -1.0
-                )
-
-                total_strong_pos += strong_pos_count
-                total_strong_neg += strong_neg_count
-                total_sentiment_frequency += pos_count + neg_count
-
-            except Exception as e:
-                print(f"Error getting sentiment for '{keyword}': {e}")
-                continue
-
-        if total_sentiment_frequency == 0:
-            return 50.0, []
-
-        sentiment_score = (
-            total_strong_pos - total_strong_neg
-        ) / total_sentiment_frequency * 50 + 50
-        return sentiment_score, all_positive_judgments
-
-    async def summarize_trend_reasons(keyword):
-        if not keyword:
-            return "키워드가 없어 트렌드 분석 불가"
-
-        today = datetime.today()
-        start_date = today - timedelta(days=90)
-        trend_data = get_naver_trend(keyword, start_date, today)
-
-        if not trend_data:
-            return "트렌드 데이터 없음"
-
-        df = pd.DataFrame(trend_data)
-        data_str = df.to_string()
-
-        llm = get_llm_client(temperature=0.2)
-        prompt = f"""
-        다음은 '{keyword}'에 대한 최근 90일간의 네이버 검색량 트렌드 데이터입니다.
-        데이터(날짜별 관심도 비율)를 기반으로, 검색량 트렌드의 특징을 1~2줄로 요약해주세요.
-        예: '최근 한 달간 관심도가 꾸준히 증가하고 있습니다.' 또는 '특정 날짜에 검색량이 급증하는 패턴을 보입니다.'
-
-        데이터:
-        {data_str}
-        """
-        try:
-            response = await llm.ainvoke(prompt)
-            return response.content.strip()
-        except Exception as e:
-            print(f"Error summarizing trend: {e}")
-            return "트렌드 분석 중 오류 발생"
-
-    async def summarize_sentiment_reasons(positive_judgments, keyword):
-        if not positive_judgments:
-            return "긍정 리뷰가 없어 분석 불가"
-
-        sentences = [j["sentence"] for j in positive_judgments]
-        sentences_str = "\n- ".join(sentences[:20])
-
-        llm = get_llm_client(temperature=0.2)
-        prompt = f"""
-        다음은 '{keyword}'에 대한 블로그 리뷰에서 추출된 긍정적인 문장들입니다.
-        이 문장들을 바탕으로, 사용자들이 주로 어떤 점을 칭찬하는지 핵심적인 이유 1~2가지를 요약해주세요.
-        예: '깨끗한 시설과 다양한 먹거리에 대한 칭찬이 많습니다.' 또는 '아이들이 즐길 수 있는 체험 프로그램이 좋은 평가를 받았습니다.'
-
-        긍정 문장 목록:
-        - {sentences_str}
-        """
-        try:
-            response = await llm.ainvoke(prompt)
-            return response.content.strip()
-        except Exception as e:
-            print(f"Error summarizing sentiment: {e}")
-            return "감성 분석 이유 요약 중 오류 발생"
-
-    async def rank_facilities(
-        facilities_list, num_reviews, top_n, progress=gr.Progress()
-    ):
-        if not facilities_list:
-            return (
-                [],
-                "시설 목록이 비어있습니다.",
-                gr.update(value=[]),
-                "",
-                gr.update(visible=False),
-                gr.update(visible=False),
-            )
-
-        async def process_facility(facility):
-            title = facility.get("title", "")
-            trend_score = get_trend_score(title)
-            sentiment_score, positive_judgments = await get_sentiment_score(
-                title, num_reviews
-            )
-
-            trend_reason, sentiment_reason = await asyncio.gather(
-                summarize_trend_reasons(title),
-                summarize_sentiment_reasons(positive_judgments, title),
-            )
-
-            facility["trend_score"] = round(trend_score, 2)
-            facility["sentiment_score"] = round(sentiment_score, 2)
-            facility["ranking_score"] = round(
-                (trend_score * 0.5) + (sentiment_score * 0.5), 2
-            )
-            facility["trend_reason"] = trend_reason
-            facility["sentiment_reason"] = sentiment_reason
-            return facility
-
-        tasks = [process_facility(f) for f in facilities_list]
-        ranked_facilities = []
-        for task in progress.tqdm(
-            asyncio.as_completed(tasks), total=len(tasks), desc="시설 점수 계산 중"
-        ):
-            result_facility = await task
-            ranked_facilities.append(result_facility)
-
-        ranked_facilities.sort(key=lambda x: x.get("ranking_score", 0), reverse=True)
-        gallery_output = [
-            (
-                item.get("firstimage", NO_IMAGE_URL) or NO_IMAGE_URL,
-                f"점수: {item.get('ranking_score')} - {item['title']}",
-            )
-            for item in ranked_facilities
-        ]
-        report_update = await generate_full_report(ranked_facilities, top_n)
-
-        return ranked_facilities, "순위 계산 완료!", gallery_output, report_update
-
-    async def rank_courses(courses_list, num_reviews, top_n, progress=gr.Progress()):
-        if not courses_list:
-            return (
-                [],
-                "코스 목록이 비어있습니다.",
-                gr.update(value=[]),
-                "",
-                gr.update(visible=False),
-                gr.update(visible=False),
-            )
-
-        async def process_course(course):
-            course_title = course.get("title", "")
-            sub_points = course.get("sub_points", [])
-            if not sub_points:
-                course["ranking_score"] = 0
-                return course
-
-            sub_point_trend_scores = []
-            sub_point_sentiment_scores = []
-            all_positive_judgments = []
-
-            for sub_point in sub_points:
-                sub_title = sub_point.get("subname", "")
-                if not sub_title:
-                    continue
-
-                trend_score = get_trend_score(sub_title)
-                sentiment_score, positive_judgments = await get_sentiment_score(
-                    sub_title, num_reviews
-                )
-                sub_point_trend_scores.append(trend_score)
-                sub_point_sentiment_scores.append(sentiment_score)
-                all_positive_judgments.extend(positive_judgments)
-
-            if not sub_point_trend_scores:
-                course["ranking_score"] = 0
-                course["trend_score"] = 0
-                course["sentiment_score"] = 0
-                course["trend_reason"] = "세부 코스 정보 부족"
-                course["sentiment_reason"] = "세부 코스 정보 부족"
-            else:
-                avg_trend_score = sum(sub_point_trend_scores) / len(
-                    sub_point_trend_scores
-                )
-                avg_sentiment_score = sum(sub_point_sentiment_scores) / len(
-                    sub_point_sentiment_scores
-                )
-                course["trend_score"] = round(avg_trend_score, 2)
-                course["sentiment_score"] = round(avg_sentiment_score, 2)
-                course["ranking_score"] = round(
-                    (avg_trend_score * 0.5) + (avg_sentiment_score * 0.5), 2
-                )
-
-                trend_reason, sentiment_reason = await asyncio.gather(
-                    summarize_trend_reasons(course_title),
-                    summarize_sentiment_reasons(all_positive_judgments, course_title),
-                )
-                course["trend_reason"] = trend_reason
-                course["sentiment_reason"] = sentiment_reason
-
-            return course
-
-        tasks = [process_course(c) for c in courses_list]
-        ranked_courses = []
-        for task in progress.tqdm(
-            asyncio.as_completed(tasks), total=len(tasks), desc="코스 점수 계산 중"
-        ):
-            result_course = await task
-            ranked_courses.append(result_course)
-
-        ranked_courses.sort(key=lambda x: x.get("ranking_score", 0), reverse=True)
-        gallery_output = [
-            (
-                item.get("firstimage", NO_IMAGE_URL) or NO_IMAGE_URL,
-                f"점수: {item.get('ranking_score')} - {item['title']}",
-            )
-            for item in ranked_courses
-        ]
-        report_md, report_visible, header_visible = generate_full_report(
-            ranked_courses, top_n
+    async def handle_rank_facilities(facilities_list, num_reviews, top_n, progress=gr.Progress()):
+        ranked_facilities, status, gallery, report = await ranking_use_case.rank_places(
+            places_list=facilities_list,
+            num_reviews=num_reviews,
+            top_n=top_n,
+            progress=progress,
+            is_course=False
         )
-
-        return (
-            ranked_courses,
-            "순위 계산 완료!",
-            gallery_output,
-            report_md,
-            report_visible,
-            header_visible,
+        return ranked_facilities, status, gallery, gr.update(value=report, visible=True)
+    
+    async def handle_rank_courses(courses_list, num_reviews, top_n, progress=gr.Progress()):
+        ranked_courses, status, gallery, report = await ranking_use_case.rank_places(
+            places_list=courses_list,
+            num_reviews=num_reviews,
+            top_n=top_n,
+            progress=progress,
+            is_course=True
         )
-
-    async def generate_full_report(ranked_list, top_n):
-        top_n = int(top_n)
-        if not ranked_list or not any(
-            item.get("ranking_score", 0) > 0 for item in ranked_list[:top_n]
-        ):
-            return gr.update(value="스코어링된 항목이 없습니다.", visible=True)
-
-        # Generate the new comparative summary
-        comparative_summary = await generate_comparative_summary(ranked_list[:top_n])
-
-        report_parts = [f"## 🏆 최종 순위 분석\n{comparative_summary}", "---"]
-        top_items = ranked_list[:top_n]
-        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
-
-        for i, item in enumerate(top_items):
-            if i >= len(medals):
-                rank_indicator = f"{i+1}위"
-            else:
-                rank_indicator = medals[i]
-
-            title = item.get("title", "N/A")
-            total_score = item.get("ranking_score", "N/A")
-            trend_score = item.get("trend_score", "N/A")
-            sentiment_score = item.get("sentiment_score", "N/A")
-            image_url = item.get("firstimage", NO_IMAGE_URL) or NO_IMAGE_URL
-            trend_reason = item.get("trend_reason", "분석 정보 없음")
-            sentiment_reason = item.get("sentiment_reason", "분석 정보 없음")
-
-            report_parts.append(
-                f"### {rank_indicator} {i+1}위: {title} (종합 점수: {total_score})"
-            )
-            report_parts.append(f"![{title}]({image_url})\n")
-            report_parts.append(f"- **트렌드 점수**: {trend_score}")
-            report_parts.append(f"- **감성 점수**: {sentiment_score}")
-            report_parts.append(f"**📈 트렌드 분석**: {trend_reason}")
-            report_parts.append(f"**❤️ 감성 분석**: {sentiment_reason}")
-            report_parts.append("---")
-
-        report_md = "\n\n".join(report_parts)
-        return gr.update(value=report_md, visible=True)
-
-    async def generate_comparative_summary(ranked_list):
-        llm = get_llm_client(temperature=0.3)
-
-        # Format the data for the prompt
-        data_for_prompt = []
-        for item in ranked_list:
-            data_for_prompt.append(
-                {
-                    "title": item.get("title"),
-                    "ranking_score": item.get("ranking_score"),
-                    "trend_score": item.get("trend_score"),
-                    "sentiment_score": item.get("sentiment_score"),
-                    "trend_reason": item.get("trend_reason"),
-                    "sentiment_reason": item.get("sentiment_reason"),
-                }
-            )
-
-        prompt = f"""
-        당신은 여행 추천 데이터 분석가입니다. 아래에 트렌드 점수와 감성 점수를 종합하여 순위를 매긴 관광지 목록이 있습니다. 
-        이 데이터를 바탕으로, 1위가 왜 1위를 차지했는지 다른 순위와 비교하여 최종 결론을 2-3문장으로 요약해주세요.
-        단순히 점수가 높다는 사실만 언급하지 말고, 각 점수의 의미(트렌드=화제성, 감성=실제 만족도)를 해석하고, 다른 장소와 비교하여 설득력 있는 이유를 제시해야 합니다.
-
-        [데이터]
-        {json.dumps(data_for_prompt, ensure_ascii=False, indent=2)}
-
-        [요약 예시]
-        "최종 분석 결과, A가 1위를 차지했습니다. 비록 B가 실제 방문객의 만족도(감성 점수)는 더 높았지만, A는 압도적인 화제성(트렌드 점수)과 준수한 만족도를 바탕으로 가장 균형 잡힌 추천 장소로 선정되었습니다. 반면 C는 높은 화제성에도 불구하고 긍정적인 피드백이 부족하여 순위가 밀렸습니다."
-        """
-        try:
-            response = await llm.ainvoke(prompt)
-            return response.content.strip()
-        except Exception as e:
-            print(f"Error generating comparative summary: {e}")
-            return "최종 분석 요약 생성 중 오류가 발생했습니다."
-
+        return ranked_courses, status, gallery, gr.update(value=report, visible=True)
     def update_sigungu(area):
         choices = (
             ["전체"] + sorted(list(SIGUNGU_CODE_MAP.get(area, {}).keys()))
@@ -1815,17 +924,23 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             "medium_cat": medium_cat, "small_cat": small_cat
         }
         final_state = db_search_graph.invoke(initial_state)
-        all_results = final_state.get("results", [])  # Rename to avoid confusion
+        all_results = final_state.get("results", [])
+        # festival is (title, firstimage, eventstartdate, eventenddate)
+        # Convert tuple results from DB to a list of dictionaries
+        all_results_dicts = [
+            {"title": row[0], "firstimage": row[1], "eventstartdate": row[2], "eventenddate": row[3]}
+            for row in all_results
+        ]
 
         filtered_by_status = []
         today = datetime.today().strftime(
             "%Y%m%d"
         )  # Get today's date in YYYYMMDD format
 
-        for festival in all_results:
-            # festival is (title, firstimage, eventstartdate, eventenddate)
-            event_start_date_str = str(festival[2]).split('.')[0] if festival[2] else None
-            event_end_date_str = str(festival[3]).split('.')[0] if festival[3] else None
+        for festival in all_results_dicts:
+            # festival is now a dictionary
+            event_start_date_str = str(festival.get("eventstartdate", "")).split('.')[0]
+            event_end_date_str = str(festival.get("eventenddate", "")).split('.')[0]
 
             is_ongoing = False
             is_upcoming = False
@@ -1849,19 +964,16 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             elif status == "종료된 축제" and is_ended:
                 filtered_by_status.append(festival)
 
-        print(f"DEBUG: run_search_and_display - len(all_results): {len(all_results)}")
+        print(f"DEBUG: run_search_and_display - len(all_results): {len(all_results_dicts)}")
         print(f"DEBUG: run_search_and_display - len(filtered_by_status): {len(filtered_by_status)}")
 
-        results_for_state = [(item[1], item[0]) for item in filtered_by_status] # (firstimage, title)
+        # results_for_state should be the list of dicts
+        results_for_state = sorted(filtered_by_status, key=lambda x: x['title'])
 
-        display_results = [
-            (item[1], item[0]) for item in filtered_by_status
-        ]  # (firstimage, title) for gallery
-
-        total_pages = math.ceil(len(display_results) / PAGE_SIZE)
+        total_pages = math.ceil(len(results_for_state) / PAGE_SIZE)
         
-        gallery, page_str_updated, page_button_1_update, page_button_2_update, page_button_3_update, page_button_4_update, page_button_5_update = display_page(display_results, 1)
-        return results_for_state, gallery, page_str_updated, gr.update(visible=len(display_results) > 0), gr.update(value=total_pages), page_button_1_update, page_button_2_update, page_button_3_update, page_button_4_update, page_button_5_update
+        gallery, page_str_updated, page_button_1_update, page_button_2_update, page_button_3_update, page_button_4_update, page_button_5_update = display_page(results_for_state, 1)
+        return results_for_state, gallery, page_str_updated, gr.update(visible=len(results_for_state) > 0), gr.update(value=total_pages), page_button_1_update, page_button_2_update, page_button_3_update, page_button_4_update, page_button_5_update
 
     def run_nearby_search(festival_details, radius_meters):
         if (
@@ -1960,8 +1072,8 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
     )
 
     image_collect_button.click(
-        fn=scrape_festival_images,
-        inputs=[selected_festival_state],
+        fn=handle_scrape_images,
+        inputs=[selected_festival_state, num_blogs_for_images],
         outputs=[image_gallery, image_gallery_accordion, scraped_urls_output],
     )
 
@@ -1972,19 +1084,19 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
     )
 
     trend_graph_btn.click(
-        fn=generate_trend_graphs,
+        fn=handle_generate_trend_graphs,
         inputs=[selected_festival_state],
         outputs=[trend_accordion, trend_status, trend_plot_yearly, trend_plot_event],
     )
 
     word_cloud_btn.click(
-        fn=generate_word_cloud,
+        fn=handle_generate_word_cloud,
         inputs=[selected_festival_state, num_reviews_wordcloud],
         outputs=[wordcloud_accordion, wordcloud_status, wordcloud_plot],
     )
 
     run_sentiment_btn.click(
-        fn=analyze_sentiment,
+        fn=handle_analyze_sentiment,
         inputs=[selected_festival_state, num_reviews_slider],
         outputs=[
             sentiment_accordion,
@@ -2019,7 +1131,7 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
     )
 
     rank_facilities_btn.click(
-        fn=rank_facilities,
+        fn=handle_rank_facilities,
         inputs=[
             recommended_facilities_state,
             ranking_reviews_slider,
@@ -2034,7 +1146,7 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
     )
 
     rank_courses_btn.click(
-        fn=rank_courses,
+        fn=handle_rank_courses,
         inputs=[
             recommended_courses_state,
             ranking_reviews_slider,
@@ -2227,6 +1339,31 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
         fn=display_recommend_details,
         inputs=[recommended_courses_state],
         outputs=[recommend_details_output, recommend_details_accordion],
+    )
+
+    async def handle_rank_festivals(festivals_list, num_reviews, top_n, progress=gr.Progress()):
+        if not festivals_list:
+            # Return empty updates for all outputs
+            empty_updates = [[]] + [gr.update(value=[])] + ["1 / 1"] + [gr.update(visible=False)] * 5 + [gr.update(value="", visible=False)]
+            return tuple(empty_updates)
+
+        ranked_festivals, report_md = await ranking_use_case.rank_festivals(
+            festivals_list=festivals_list,
+            num_reviews=num_reviews,
+            top_n=top_n,
+            progress=progress,
+        )
+        
+        gallery_output, page_display_str, *page_buttons_updates = display_page(ranked_festivals, 1)
+        
+        report_update = gr.update(value=report_md, visible=True)
+
+        return ranked_festivals, gallery_output, page_display_str, *page_buttons_updates, report_update
+
+    rank_festivals_btn.click(
+        fn=handle_rank_festivals,
+        inputs=[results_state, num_reviews_festival_ranking, festival_ranking_top_n_slider],
+        outputs=[results_state, festival_gallery, page_display, page_button_1, page_button_2, page_button_3, page_button_4, page_button_5, festival_ranking_report]
     )
 
 if __name__ == "__main__":
