@@ -156,6 +156,93 @@ class RankingUseCase:
         except Exception as e:
             return "감성 분석 이유 요약 중 오류 발생"
 
+    async def _generate_score_explanation(self, item: dict, is_festival: bool) -> str:
+        llm = get_llm_client(temperature=0.3)
+        
+        # Prepare data for the prompt
+        data = {
+            "title": item.get("title"),
+            "sentiment_score": item.get("sentiment_score"),
+            "sentiment_reason": item.get("sentiment_reason"),
+            "quarterly_trend_score": item.get("quarterly_trend_score"),
+            "yearly_trend_score": item.get("yearly_trend_score"),
+            "trend_reason": item.get("trend_reason"),
+        }
+        today_str = datetime.today().strftime("%Y년 %m월 %d일")
+
+        if is_festival:
+            data["time_score"] = item.get("time_score")
+            # Add festival dates to the data payload
+            start_date = item.get("eventstartdate")
+            end_date = item.get("eventenddate")
+            if start_date and end_date:
+                try:
+                    data["festival_period"] = f"{datetime.strptime(str(start_date), '%Y%m%d').strftime('%Y년 %m월 %d일')}부터 {datetime.strptime(str(end_date), '%Y%m%d').strftime('%Y년 %m월 %d일')}까지"
+                except (ValueError, TypeError):
+                    pass # Ignore if dates are not in the expected format
+
+            score_definitions = """
+            - ❤️ 만족도 점수: 실제 방문객들의 긍정적인 리뷰가 얼마나 많은지를 나타내요. (100점에 가까울수록 만족도가 높음)
+            - 📅 시기성 점수: 지금이 이 축제를 방문하기 얼마나 좋은 시기인지를 알려줘요. (100점에 가까울수록 축제가 현재 진행중이거나 곧 시작한다는 의미)
+            - 🔥 최근 화제성 (90일): 지난 3개월 동안 사람들이 얼마나 많이 검색했는지를 보여줘요.
+            - 🗓️ 연간 꾸준함 (365일): 1년 내내 얼마나 꾸준히 인기가 있었는지를 나타내요.
+            """
+            # New instruction for the prompt
+            timeliness_instruction = f"""
+        - '시기성 점수'를 설명할 때는 오늘 날짜({today_str})와 축제 기간({data.get('festival_period', '알 수 없음')})을 함께 언급하며 왜 방문하기 좋은 시기인지(또는 아닌지) 구체적으로 설명해주세요.
+        """
+        else:
+            data["distance_score"] = item.get("distance_score")
+            raw_distance_km = item.get("distance")
+            if raw_distance_km is not None:
+                data["distance_in_km"] = f"{raw_distance_km:.2f}km"
+
+            score_definitions = """
+            - ❤️ 만족도 점수: 실제 방문객들의 긍정적인 리뷰가 얼마나 많은지를 나타내요. (100점에 가까울수록 만족도가 높음)
+            - 📍 거리 점수: 원래 찾으려던 축제 장소에서 얼마나 가까운지를 알려줘요. (100점에 가까울수록 가까움)
+            - 🔥 최근 화제성 (90일): 지난 3개월 동안 사람들이 얼마나 많이 검색했는지를 보여줘요.
+            - 🗓️ 연간 꾸준함 (365일): 1년 내내 얼마나 꾸준히 인기가 있었는지를 나타내요.
+            """
+            timeliness_instruction = f"""
+        - '거리 점수'를 설명할 때는 실제 거리({data.get('distance_in_km', '알 수 없음')})를 함께 언급하며 얼마나 가까운지(또는 먼지) 구체적으로 설명해주세요.
+        """ # No special instruction for distance
+
+        prompt = f'''
+        당신은 데이터를 쉽고 친절하게 설명해주는 분석가입니다. 아래는 '{data["title"]}'의 분석 데이터입니다.
+
+        [점수 의미]
+        {score_definitions}
+
+        [분석 데이터]
+        {json.dumps(data, ensure_ascii=False, indent=2)}
+
+        [요청]
+        위 데이터를 바탕으로, 각 항목에 대해 사용자가 이해하기 쉽게 구체적인 설명을 생성해주세요.
+        아래 규칙을 반드시 지켜주세요.
+
+        1. 각 항목을 설명할 때, 점수와 함께 그 점수가 의미하는 바를 `sentiment_reason`과 `trend_reason`을 활용하여 풀어서 설명해주세요.
+        2. '만족도 점수'를 설명할 때는 `sentiment_reason`에 있는 구체적인 칭찬 이유를 반드시 포함해주세요.
+        {timeliness_instruction}
+        3. 딱딱한 보고서 형식이 아닌, 친구에게 말하듯 친절하고 부드러운 어투를 사용해주세요.
+        4. "[분석]" 이라는 단어나 머리글을 사용하지 마세요.
+        5. 각 항목을 설명하는 내용을 Markdown 리스트(-) 형식으로 작성해주세요.
+
+        [좋은 출력 예시 (축제)]
+        - ❤️ **만족도**: 83.33점! 방문객들이 '깨끗한 시설과 다양한 먹거리' 때문에 아주 만족했어요.
+        - 📅 **시기성**: 100점! 축제가 2024년 10월 25일부터 2024년 11월 3일까지인데, 오늘이 10월 26일이니까 지금 바로 축제를 즐길 수 있는 완벽한 시기예요.
+        - 🔥 **화제성**: 최근 3개월간 관심도가 16.25점으로 다소 낮지만, '특정 날짜에만 관심이 집중되는 패턴'을 보여요. 조용한 방문을 원한다면 지금이 기회일 수 있어요. 1년 내내 꾸준한 관심도는 13.47점으로, 아는 사람만 아는 숨은 명소일 가능성이 높아요.
+        
+        [좋은 출력 예시 (장소)]
+        - ❤️ **만족도**: 90점! '직원들이 친절하고 주차장이 넓다'는 점에서 방문객들의 만족도가 매우 높아요.
+        - 📍 **거리**: 85점! 원래 가려던 축제 장소에서 약 1.25km 떨어져 있어 함께 둘러보기 좋아요.
+        - 🔥 **화제성**: '주말에 검색량이 급증하는 경향'을 보여요. 여유롭게 즐기고 싶다면 평일에 방문하는 걸 추천해요.
+        '''
+        try:
+            response = await llm.ainvoke(prompt)
+            return response.content.strip()
+        except Exception as e:
+            return "점수 설명 생성 중 오류가 발생했습니다."
+
     async def _generate_comparative_summary(self, ranked_list: list, is_festival: bool) -> str:
         llm = get_llm_client(temperature=0.3)
         
@@ -226,29 +313,14 @@ class RankingUseCase:
             rank_indicator = medals[i] if i < len(medals) else f"{i+1}위"
             title = item.get("title", "N/A")
             total_score = item.get("ranking_score", "N/A")
-            sentiment_score = item.get("sentiment_score", "N/A")
-            quarterly_trend_score = item.get("quarterly_trend_score", "N/A")
-            yearly_trend_score = item.get("yearly_trend_score", "N/A")
             image_url = item.get("firstimage", NO_IMAGE_URL) or NO_IMAGE_URL
-            trend_reason = item.get("trend_reason", "분석 정보 없음")
-            sentiment_reason = item.get("sentiment_reason", "분석 정보 없음")
+
+            # Generate the user-friendly explanation for the scores
+            explanation = await self._generate_score_explanation(item, is_festival)
 
             report_parts.append(f"### {rank_indicator} {i+1}위: {title} (종합 점수: {total_score})")
             report_parts.append(f"![{title}]({image_url})\n")
-            report_parts.append(f"- **❤️ 만족도 점수**: {sentiment_score}")
-            
-            if is_festival:
-                time_score = item.get("time_score", "N/A")
-                report_parts.append(f"- **📅 시기성 점수**: {time_score}")
-            else:
-                distance_score = item.get("distance_score", "N/A")
-                report_parts.append(f"- **📍 거리 점수**: {distance_score}")
-
-            report_parts.append(f"- **🔥 최근 화제성 (90일)**: {quarterly_trend_score}")
-            report_parts.append(f"- **🗓️ 연간 꾸준함 (365일)**: {yearly_trend_score}")
-            report_parts.append(f"\n**[분석]**")
-            report_parts.append(f"- **만족도 분석**: {sentiment_reason}")
-            report_parts.append(f"- **화제성 분석**: {trend_reason}")
+            report_parts.append(explanation)
             report_parts.append("---")
 
         return "\n\n".join(report_parts)

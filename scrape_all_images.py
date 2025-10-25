@@ -171,7 +171,8 @@ def scrape_and_download_images(llm, festival_name: str, output_dir: str):
             file_path = os.path.join(output_dir, file_name)
             
             with open(file_path, "wb") as f:
-                f.write(response.content)
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
 
         except requests.exceptions.RequestException as e:
             logging.error(f"  Failed to download {img_url}: {e}")

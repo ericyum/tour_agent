@@ -6,5 +6,10 @@
 __pycache__/
 
 *.img
+*.png
 *.jpg
 *.jpeg
+*.php
+*.gif
+*.do
+*.es
