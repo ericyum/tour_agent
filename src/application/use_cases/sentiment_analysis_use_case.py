@@ -70,7 +70,7 @@ class SentimentAnalysisUseCase:
 
                     final_state = app_llm_graph.invoke({
                         "original_text": content, "keyword": festival_name, "title": blog_data["title"],
-                        "log_details": False, "re_summarize_count": 0, "is_relevant": False,
+                        "log_details": True, "re_summarize_count": 0, "is_relevant": False,
                     })
 
                     if not final_state or not final_state.get("is_relevant"):

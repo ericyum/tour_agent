@@ -7,23 +7,33 @@ def agent_nearby_search(state: DBSearchState) -> DBSearchState:
     latitude = state.get("latitude")
     longitude = state.get("longitude")
     radius = state.get("radius")
+    # Get the contentid of the festival to be excluded, if it exists
+    current_festival_id = state.get("current_festival_id")
+
 
     if not all([latitude, longitude, radius]):
         # Should not happen if routed correctly, but as a safeguard
         state["recommended_facilities"] = []
         state["recommended_courses"] = []
+        state["recommended_festivals"] = []
         return state
 
     conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     facilities = conn.execute("SELECT * FROM facilities WHERE mapx IS NOT NULL AND mapy IS NOT NULL").fetchall()
     courses = conn.execute("SELECT * FROM courses WHERE mapx IS NOT NULL AND mapy IS NOT NULL").fetchall()
+    festivals = conn.execute("SELECT * FROM festivals WHERE mapx IS NOT NULL AND mapy IS NOT NULL").fetchall()
     conn.close()
 
     facilities_recs = []
     for place_row in facilities:
         try:
-            distance = haversine(longitude, latitude, place_row['mapx'], place_row['mapy'])
+            dest_lon, dest_lat = place_row['mapx'], place_row['mapy']
+            if not (124 < dest_lon < 132 and 33 < dest_lat < 39):
+                if (124 < dest_lat < 132 and 33 < dest_lon < 39):
+                    dest_lon, dest_lat = dest_lat, dest_lon
+            
+            distance = haversine(longitude, latitude, dest_lon, dest_lat)
             if distance <= float(radius):
                 place_dict = dict(place_row)
                 place_dict['distance'] = distance  # Add distance to the dictionary
@@ -35,7 +45,12 @@ def agent_nearby_search(state: DBSearchState) -> DBSearchState:
     min_course_distances = {}
     for place_row in courses:
         try:
-            distance = haversine(longitude, latitude, place_row['mapx'], place_row['mapy'])
+            dest_lon, dest_lat = place_row['mapx'], place_row['mapy']
+            if not (124 < dest_lon < 132 and 33 < dest_lat < 39):
+                if (124 < dest_lat < 132 and 33 < dest_lon < 39):
+                    dest_lon, dest_lat = dest_lat, dest_lon
+
+            distance = haversine(longitude, latitude, dest_lon, dest_lat)
             if distance <= float(radius):
                 course_dict = dict(place_row)
                 content_id = course_dict['contentid']
@@ -59,8 +74,28 @@ def agent_nearby_search(state: DBSearchState) -> DBSearchState:
         final_course_obj['sub_points'] = sorted(course_group['sub_points'], key=lambda x: x.get('subnum', 0))
         final_course_obj['distance'] = min_course_distances.get(content_id, float('inf')) # Add the min distance
         courses_recs.append(final_course_obj)
+
+    festivals_recs = []
+    for festival_row in festivals:
+        # Exclude the current festival from its own recommendation list
+        if current_festival_id and festival_row['contentid'] == current_festival_id:
+            continue
+        try:
+            dest_lon, dest_lat = festival_row['mapx'], festival_row['mapy']
+            if not (124 < dest_lon < 132 and 33 < dest_lat < 39):
+                if (124 < dest_lat < 132 and 33 < dest_lon < 39):
+                    dest_lon, dest_lat = dest_lat, dest_lon
+
+            distance = haversine(longitude, latitude, dest_lon, dest_lat)
+            if distance <= float(radius):
+                festival_dict = dict(festival_row)
+                festival_dict['distance'] = distance
+                festivals_recs.append(festival_dict)
+        except (ValueError, TypeError):
+            continue
     
-    state["recommended_facilities"] = facilities_recs
-    state["recommended_courses"] = courses_recs
+    state["recommended_facilities"] = sorted(facilities_recs, key=lambda x: x.get('distance', float('inf')))
+    state["recommended_courses"] = sorted(courses_recs, key=lambda x: x.get('distance', float('inf')))
+    state["recommended_festivals"] = sorted(festivals_recs, key=lambda x: x.get('distance', float('inf')))
     
     return state

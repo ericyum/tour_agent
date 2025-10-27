@@ -264,6 +264,7 @@ ranking_use_case = RankingUseCase(
 
 
 from src.application.supervisors.db_search_supervisor import db_search_graph
+from src.application.supervisors.course_validation_supervisor import course_validation_graph
 
 
 def display_page(results, page):
@@ -494,6 +495,9 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
     total_pages_state = gr.State(1) # New state to store total pages
     recommended_facilities_state = gr.State([])
     recommended_courses_state = gr.State([])
+    recommended_festivals_state = gr.State([])
+    my_course_state = gr.State([])
+    temp_selection_state = gr.State()
 
     with gr.Group():
         with gr.Row():
@@ -630,6 +634,7 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             )
             rank_facilities_btn = gr.Button("관광 시설 순위 매기기")
             rank_courses_btn = gr.Button("관광 코스 순위 매기기")
+            rank_festivals_rec_btn = gr.Button("추천 축제 순위 매기기")
 
         recommend_status = gr.Textbox(label="상태", interactive=False, visible=False)
         gr.Markdown("### 추천 관광 시설")
@@ -652,6 +657,18 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             object_fit="contain",
         )
         course_ranking_report = gr.Markdown(visible=False)
+
+        gr.Markdown("### 추천 축제")
+        recommend_festivals_gallery = gr.Gallery(
+            label="추천 축제",
+            show_label=False,
+            elem_id="recommend_festivals_gallery",
+            columns=4,
+            height="auto",
+            object_fit="contain",
+        )
+        festival_ranking_rec_report = gr.Markdown(visible=False)
+
         with gr.Accordion(
             "추천 장소 상세 정보", open=False, visible=False
         ) as recommend_details_accordion:
@@ -827,6 +844,19 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
                     label="문장별 감성 점수", visible=False
                 )
 
+    with gr.Accordion("나만의 코스", open=True) as my_course_accordion:
+        my_course_output = gr.Markdown("나만의 코스에 항목을 추가해보세요.")
+        with gr.Row():
+            add_to_my_course_btn = gr.Button("선택한 항목 '나만의 코스'에 추가")
+            clear_my_course_btn = gr.Button("나만의 코스 비우기")
+        
+        gr.Markdown("---")
+        gr.Markdown("### 📅 코스 현실성 검증")
+        with gr.Row():
+            trip_duration_input = gr.Textbox(label="총 여행 기간을 입력하세요 (예: 2박 3일, 당일치기)", placeholder="예: 1박 2일")
+            validate_course_btn = gr.Button("검증하기", variant="primary")
+        course_validation_output = gr.Markdown()
+
     # --- Event Handlers ---
 
     page_button_1.click(
@@ -982,14 +1012,10 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             or not festival_details.get("mapy")
         ):
             return (
-                [],
-                [],
-                gr.update(
-                    value="축제 좌표 정보가 없어 추천할 수 없습니다.", visible=True
-                ),
-                [],
-                [],
-                gr.update(visible=False),
+                [], [], [], # states
+                gr.update(value="좌표 정보가 없어 추천할 수 없습니다.", visible=True),
+                [], [], [], # galleries
+                gr.update(visible=False) # ranking controls
             )
 
         initial_state = {
@@ -997,22 +1023,20 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             "latitude": festival_details.get("mapy"),
             "longitude": festival_details.get("mapx"),
             "radius": radius_meters,
+            "current_festival_id": festival_details.get("contentid")
         }
         final_state = db_search_graph.invoke(initial_state)
 
         facilities_recs = final_state.get("recommended_facilities", [])
         courses_recs = final_state.get("recommended_courses", [])
+        festivals_recs = final_state.get("recommended_festivals", [])
 
-        if not facilities_recs and not courses_recs:
+        if not facilities_recs and not courses_recs and not festivals_recs:
             return (
-                [],
-                [],
-                gr.update(
-                    value=f"{radius_meters}m 내에 추천할 장소가 없습니다.", visible=True
-                ),
-                [],
-                [],
-                gr.update(visible=False),
+                [], [], [],
+                gr.update(value=f"{radius_meters}m 내에 추천할 장소가 없습니다.", visible=True),
+                [], [], [],
+                gr.update(visible=False)
             )
 
         facility_gallery_output = [
@@ -1023,14 +1047,20 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             (item.get("firstimage", NO_IMAGE_URL) or NO_IMAGE_URL, item["title"])
             for item in courses_recs
         ]
+        festival_gallery_output = [
+            (item.get("firstimage", NO_IMAGE_URL) or NO_IMAGE_URL, item["title"])
+            for item in festivals_recs
+        ]
 
         return (
             facilities_recs,
             courses_recs,
+            festivals_recs,
+            gr.update(visible=False), # status
             facility_gallery_output,
             course_gallery_output,
-            gr.update(visible=False),
-            gr.update(visible=True),
+            festival_gallery_output,
+            gr.update(visible=True), # ranking controls
         )
 
     search_btn.click(
@@ -1050,6 +1080,10 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             selected_festival_state,
             selected_festival_details_state,
         ],
+    ).then(
+        fn=lambda x: x,
+        inputs=[selected_festival_details_state],
+        outputs=[temp_selection_state]
     ).then(
         fn=lambda: (
             gr.update(open=True),  # details_accordion
@@ -1166,9 +1200,11 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
         outputs=[
             recommended_facilities_state,
             recommended_courses_state,
+            recommended_festivals_state,
+            recommend_status,
             recommend_facilities_gallery,
             recommend_courses_gallery,
-            recommend_status,
+            recommend_festivals_gallery,
             ranking_controls,
         ],
     )
@@ -1364,6 +1400,129 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
         fn=handle_rank_festivals,
         inputs=[results_state, num_reviews_festival_ranking, festival_ranking_top_n_slider],
         outputs=[results_state, festival_gallery, page_display, page_button_1, page_button_2, page_button_3, page_button_4, page_button_5, festival_ranking_report]
+    )
+
+    # --- New Event Handlers for Recommendations and My Course ---
+
+    # 1. Handle ranking of recommended festivals
+    rank_festivals_rec_btn.click(
+        fn=handle_rank_festivals,
+        inputs=[recommended_festivals_state, ranking_reviews_slider, ranking_top_n_slider],
+        outputs=[recommended_festivals_state, recommend_festivals_gallery, festival_ranking_rec_report]
+    )
+
+    # 2. Handle selection of a recommended item to store it temporarily and display its details
+    def update_selection_and_details(evt: gr.SelectData, items: list):
+        if not evt or not items or evt.index >= len(items):
+            return None, gr.update(), gr.update(), gr.update()
+        
+        selected_item = items[evt.index]
+        
+        details_list = []
+        exclude_cols = [
+            "id", "contentid", "contenttypeid", "lDongRegnCd", "lDongSignguCd",
+            "lclsSystm1", "lclsSystm2", "lclsSystm3", "mlevel", "cpyrhtDivCd",
+            "areacode", "cat1", "cat2", "cat3", "createdtime", "mapx", "mapy",
+            "modifiedtime", "sigungucode", "ranking_score", "time_score", 
+            "sentiment_score", "quarterly_trend_score", "yearly_trend_score",
+            "sub_points"
+        ]
+        for key, value in selected_item.items():
+            if key in exclude_cols:
+                continue
+            if value is not None and str(value).strip() != "":
+                display_key = COLUMN_TRANSLATIONS.get(key, key)
+                details_list.append(f"**{display_key}**: {value}")
+
+        details_text = "\n\n".join(details_list)
+
+        return selected_item, selected_item, selected_item.get("title"), gr.update(value=details_text)
+
+    def add_to_my_course(item_to_add, current_course: list):
+        if item_to_add and not any(c['title'] == item_to_add.get('title') for c in current_course):
+            current_course.append(item_to_add)
+        
+        course_html = "<h3>🚗 나만의 코스</h3>"
+        if not current_course:
+            course_html += "<p>나만의 코스에 항목을 추가해보세요.</p>"
+        else:
+            for i, item in enumerate(current_course):
+                details_html = ""
+                exclude_cols = ["id", "contentid", "contenttypeid", "lDongRegnCd", "lDongSignguCd", "lclsSystm1", "lclsSystm2", "lclsSystm3", "mlevel", "cpyrhtDivCd", "areacode", "cat1", "cat2", "cat3", "createdtime", "mapx", "mapy", "modifiedtime", "sigungucode", "distance", "distance_score", "quarterly_trend_score", "yearly_trend_score", "sentiment_score", "ranking_score", "trend_reason", "sentiment_reason", "sub_points"]
+                for key, value in item.items():
+                    if key in exclude_cols:
+                        continue
+                    if value and str(value).strip():
+                        display_key = COLUMN_TRANSLATIONS.get(key, key)
+                        details_html += f"<b>{display_key}</b>: {value}<br>"
+                
+                course_html += f"""
+                <details>
+                    <summary><b>{i+1}. {item.get('title', '이름 없음')}</b></summary>
+                    <div style="padding: 10px; border: 1px solid #eee; margin-top: 5px;">
+                        {details_html}
+                    </div>
+                </details>
+                """
+        
+        return current_course, course_html
+
+    add_to_my_course_btn.click(
+        fn=add_to_my_course,
+        inputs=[temp_selection_state, my_course_state],
+        outputs=[my_course_state, my_course_output]
+    )
+
+    # 4. Handle clearing "My Course"
+    def clear_my_course():
+        return [], "<h3>🚗 나만의 코스</h3><p>나만의 코스에 항목을 추가해보세요.</p>"
+
+    clear_my_course_btn.click(
+        fn=clear_my_course,
+        inputs=[],
+        outputs=[my_course_state, my_course_output]
+    )
+
+    # 5. Handle chained recommendations by updating the main details view
+    recommend_facilities_gallery.select(
+        fn=update_selection_and_details,
+        inputs=[recommended_facilities_state],
+        outputs=[temp_selection_state, selected_festival_details_state, selected_festival_state, festival_details_output]
+    )
+    recommend_courses_gallery.select(
+        fn=update_selection_and_details,
+        inputs=[recommended_courses_state],
+        outputs=[temp_selection_state, selected_festival_details_state, selected_festival_state, festival_details_output]
+    )
+    recommend_festivals_gallery.select(
+        fn=update_selection_and_details,
+        inputs=[recommended_festivals_state],
+        outputs=[temp_selection_state, selected_festival_details_state, selected_festival_state, festival_details_output]
+    )
+
+    async def handle_validate_course(course, duration):
+        if not course or not duration:
+            yield "코스나 여행 기간을 입력해주세요."
+            return
+
+        yield "검증 중입니다... ⏳"
+
+        initial_state = {
+            "course": course,
+            "duration": duration
+        }
+        
+        loop = asyncio.get_running_loop()
+        final_state = await loop.run_in_executor(
+            None, course_validation_graph.invoke, initial_state
+        )
+        
+        yield final_state.get("validation_result", "검증 결과를 가져오는 데 실패했습니다.")
+
+    validate_course_btn.click(
+        fn=handle_validate_course,
+        inputs=[my_course_state, trip_duration_input],
+        outputs=[course_validation_output]
     )
 
 if __name__ == "__main__":

@@ -68,7 +68,7 @@ class RankingUseCase:
 
                 final_state = app_llm_graph.invoke({
                     "original_text": content, "keyword": keyword, "title": blog_data["title"],
-                    "log_details": False, "re_summarize_count": 0, "is_relevant": False,
+                    "log_details": True, "re_summarize_count": 0, "is_relevant": False,
                 })
 
                 if not final_state or not final_state.get("is_relevant"):
@@ -193,9 +193,9 @@ class RankingUseCase:
         """
         else:
             data["distance_score"] = item.get("distance_score")
-            raw_distance_km = item.get("distance")
-            if raw_distance_km is not None:
-                data["distance_in_km"] = f"{raw_distance_km:.2f}km"
+            raw_distance_m = item.get("distance")
+            if raw_distance_m is not None:
+                data["distance_in_km"] = f"{(raw_distance_m / 1000):.2f}km"
 
             score_definitions = """
             - ❤️ 만족도 점수: 실제 방문객들의 긍정적인 리뷰가 얼마나 많은지를 나타내요. (100점에 가까울수록 만족도가 높음)

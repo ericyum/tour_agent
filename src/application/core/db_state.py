@@ -14,8 +14,10 @@ class DBSearchState(TypedDict):
     latitude: float | None
     longitude: float | None
     radius: float | None
+    current_festival_id: str | None
     
     # Results
     results: List[Dict[str, Any]] | None
     recommended_facilities: List[Dict[str, Any]] | None
     recommended_courses: List[Dict[str, Any]] | None
+    recommended_festivals: List[Dict[str, Any]] | None

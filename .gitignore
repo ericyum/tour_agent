@@ -9,6 +9,10 @@ __pycache__/
 *.png
 *.jpg
 *.jpeg
+*.webp
+*.aspx
+*.wss
+*.svg
 *.php
 *.gif
 *.do

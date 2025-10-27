@@ -16,3 +16,4 @@ langchain-google-genai
 matplotlib
 Pillow
 wordcloud
+geopy
