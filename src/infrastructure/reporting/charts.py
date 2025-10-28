@@ -1,6 +1,7 @@
 import matplotlib
 matplotlib.use('Agg') # UI 백엔드가 없는 환경을 위한 설정
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.figure import Figure
 from matplotlib import font_manager, rc
 
@@ -104,5 +105,84 @@ def create_sentence_score_bar_chart(judgments: list, title: str) -> Figure | Non
                 va='center', ha='left' if score >= 0 else 'right', fontsize=8)
 
     plt.grid(axis='x', linestyle='--', alpha=0.6)
+    plt.tight_layout()
+
+    return fig
+
+def create_score_distribution_histogram(scores: list, boundaries: dict, title: str) -> Figure | None:
+    if not scores:
+        return None
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Histogram
+    ax.hist(scores, bins=30, color='skyblue', edgecolor='black', alpha=0.7, label='점수 분포')
+
+    # V-lines for boundaries and mean
+    mean_val = boundaries['mean']
+    ax.axvline(mean_val, color='red', linestyle='--', linewidth=2, label=f'평균: {mean_val:.2f}')
+    
+    boundary_colors = {
+        'very_dissatisfied': '#FF5733',
+        'dissatisfied': '#FF8C33',
+        'neutral': '#FFC300',
+        'satisfied': '#A2D9A0',
+        'very_satisfied': '#4CAF50'
+    }
+    
+    ax.axvline(boundaries['very_dissatisfied_upper'], color=boundary_colors['very_dissatisfied'], linestyle=':', linewidth=2)
+    ax.axvline(boundaries['dissatisfied_upper'], color=boundary_colors['dissatisfied'], linestyle=':', linewidth=2)
+    ax.axvline(boundaries['neutral_upper'], color=boundary_colors['neutral'], linestyle=':', linewidth=2)
+    ax.axvline(boundaries['satisfied_upper'], color=boundary_colors['satisfied'], linestyle=':', linewidth=2)
+
+    # Shading regions
+    ax.axvspan(min(scores), boundaries['very_dissatisfied_upper'], alpha=0.2, color=boundary_colors['very_dissatisfied'], label='매우 불만족')
+    ax.axvspan(boundaries['very_dissatisfied_upper'], boundaries['dissatisfied_upper'], alpha=0.2, color=boundary_colors['dissatisfied'], label='불만족')
+    ax.axvspan(boundaries['dissatisfied_upper'], boundaries['neutral_upper'], alpha=0.2, color=boundary_colors['neutral'], label='보통')
+    ax.axvspan(boundaries['neutral_upper'], boundaries['satisfied_upper'], alpha=0.2, color=boundary_colors['satisfied'], label='만족')
+    ax.axvspan(boundaries['satisfied_upper'], max(scores), alpha=0.2, color=boundary_colors['very_satisfied'], label='매우 만족')
+
+    ax.set_title(title, fontsize=16, pad=20)
+    ax.set_xlabel('감성 점수', fontsize=12)
+    ax.set_ylabel('문장 수', fontsize=12)
+    ax.legend()
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    return fig
+
+def create_outlier_boxplot(scores: list, title: str) -> Figure | None:
+    if not scores:
+        return None
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+
+    # Box plot
+    ax.boxplot(scores, vert=False, patch_artist=True,
+                     boxprops=dict(facecolor='lightblue'),
+                     medianprops=dict(color='red', linewidth=2),
+                     whiskerprops=dict(color='blue'),
+                     capprops=dict(color='black'),
+                     flierprops=dict(marker='o', markerfacecolor='red', markersize=8, alpha=0.6))
+
+    ax.set_title(title, fontsize=16, pad=20)
+    ax.set_xlabel('감성 점수', fontsize=12)
+    ax.set_yticks([]) # Hide y-axis ticks as it's a single box plot
+
+    # Calculate and display outlier count
+    q1 = np.percentile(scores, 25)
+    q3 = np.percentile(scores, 75)
+    iqr = q3 - q1
+    lower_bound = q1 - 1.5 * iqr
+    upper_bound = q3 + 1.5 * iqr
+    outliers = [s for s in scores if s < lower_bound or s > upper_bound]
+    
+    outlier_text = f"이상치 개수: {len(outliers)}개"
+    ax.text(0.95, 0.05, outlier_text,
+            verticalalignment='bottom', horizontalalignment='right',
+            transform=ax.transAxes,
+            color='red', fontsize=12)
+
+    plt.grid(axis='x', linestyle='--', alpha=0.7)
     plt.tight_layout()
     return fig

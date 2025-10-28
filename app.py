@@ -419,6 +419,7 @@ async def handle_analyze_sentiment(festival_name, num_reviews):
         gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
         gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
         gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+        gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), 
         gr.update(visible=False), gr.update(visible=False), None, None, None, 1, "/ 1",
         gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
         gr.update(visible=False, open=False),
@@ -441,11 +442,18 @@ async def handle_analyze_sentiment(festival_name, num_reviews):
         seasonal_pos_wc = result["seasonal_pos_wc_paths"]
         seasonal_neg_wc = result["seasonal_neg_wc_paths"]
 
+        distribution_description = f"이 분포표는 **{len(result['blog_df'])}**개의 블로그 후기를 분석한 결과입니다. 각 후기에서 긍정/부정 문장을 추출하고, 해당 문장들의 감성 점수를 기반으로 전체적인 만족도 분포를 시각화한 것입니다."
+        outlier_description = f"총 **{result['total_score_count']}**개의 감성 점수 중 **{result['outlier_count']}**개의 이상치가 발견되어 만족도 레벨 계산에서 제외되었습니다."
+
         yield (
             gr.update(visible=True, open=True), # sentiment_accordion
             "분석 완료", # sentiment_status
             gr.update(value=result["neg_summary_text"], visible=bool(result["neg_summary_text"])), # sentiment_negative_summary
             gr.update(value=result["overall_chart"], visible=True), # sentiment_overall_chart
+            gr.update(value=result["distribution_chart"], visible=result["distribution_chart"] is not None), # sentiment_distribution_chart
+            gr.update(value=distribution_description, visible=True), # sentiment_distribution_description
+            gr.update(value=result["outlier_chart"], visible=result["outlier_chart"] is not None), # outlier_chart
+            gr.update(value=outlier_description, visible=True), # outlier_description
             gr.update(value=result["overall_summary_text"], visible=True), # sentiment_summary
             gr.update(value=result["summary_csv_path"], visible=result["summary_csv_path"] is not None), # sentiment_overall_csv
             
@@ -740,7 +748,13 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             sentiment_overall_csv = gr.File(
                 label="종합 분석 (CSV) 다운로드", visible=False
             )
-            sentiment_overall_chart = gr.Plot(label="전체 후기 요약", visible=False)
+            with gr.Row():
+                sentiment_overall_chart = gr.Plot(label="전체 후기 요약", visible=False, scale=1)
+                sentiment_distribution_chart = gr.Image(label="만족도 점수 분포", visible=False, scale=1)
+            sentiment_distribution_description = gr.Markdown(visible=False)
+            with gr.Row():
+                outlier_chart = gr.Image(label="이상치 탐지 결과", visible=False, scale=1)
+            outlier_description = gr.Markdown(visible=False)
             sentiment_negative_summary = gr.Markdown(
                 label="주요 불만 사항 요약", visible=False
             )
@@ -1137,6 +1151,10 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             sentiment_status,
             sentiment_negative_summary,
             sentiment_overall_chart,
+            sentiment_distribution_chart,
+            sentiment_distribution_description,
+            outlier_chart,
+            outlier_description,
             sentiment_summary,
             sentiment_overall_csv,
             sentiment_spring_chart,
