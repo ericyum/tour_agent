@@ -8,6 +8,9 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 import traceback
 
+import json
+from collections import Counter
+
 # Custom Module Imports
 from src.application.supervisors.naver_review_supervisor import NaverReviewSupervisor
 from src.infrastructure.external_services.naver_search.naver_review_api import search_naver_blog
@@ -16,11 +19,108 @@ from src.application.core.utils import get_season, save_df_to_csv, summarize_neg
 from src.infrastructure.reporting.charts import create_donut_chart, create_stacked_bar_chart, create_score_distribution_histogram, create_outlier_boxplot
 from src.infrastructure.reporting.wordclouds import create_sentiment_wordclouds
 from src.application.core.constants import CATEGORY_TO_ICON_MAP
+from src.infrastructure.llm_client import get_llm_client
+from src.domain.knowledge_base import knowledge_base
+
 
 class SentimentAnalysisUseCase:
     def __init__(self, naver_supervisor: NaverReviewSupervisor, script_dir: str):
         self.naver_supervisor = naver_supervisor
         self.script_dir = script_dir
+        self.llm = get_llm_client(temperature=0.1)
+
+    def _format_positive_keywords_html(self, keywords_data: list, total_reviews: int) -> str:
+        if not keywords_data:
+            return ""
+
+        # Sort by count descending
+        keywords_data.sort(key=lambda x: x.get('count', 0), reverse=True)
+        
+        max_count = keywords_data[0].get('count', 0) if keywords_data else 0
+
+        html = '<div style="padding: 10px; border: 1px solid #e0e0e0; border-radius: 8px;">'
+        html += f'<h3 style="margin-bottom: 15px; font-size: 1.1em;">👍 이런 점이 좋았어요 <span style="font-size: 0.8em; color: #777;">(총 {total_reviews}개 후기 기반)</span></h3>'
+        html += '<ul style="list-style-type: none; padding: 0; margin: 0;">'
+
+        # Define some nice icons (using unicode)
+        icons = ["😋", "✨", "💖", "👍", "🎉", "💯", "⭐", "💡", "🙌", "😎"]
+
+        for i, item in enumerate(keywords_data[:10]): # Show top 10
+            keyword = item.get('keyword', 'N/A')
+            count = item.get('count', 0)
+            width_percentage = (count / max_count) * 100 if max_count > 0 else 0
+            icon = icons[i % len(icons)]
+
+            html += f'''
+            <li style="margin-bottom: 8px; position: relative; background-color: #f7f7f7; border-radius: 4px; overflow: hidden;">
+                <div style="position: absolute; top: 0; left: 0; height: 100%; width: {width_percentage}%; background-color: #D6E6FF; z-index: 1;"></div>
+                <div style="position: relative; z-index: 2; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between;">
+                    <span style="font-size: 0.95em; color: #333;">{icon} "{keyword}"</span>
+                    <span style="font-size: 0.9em; font-weight: bold; color: #005AAB;">{count}</span>
+                </div>
+            </li>
+            '''
+        html += '</ul></div>'
+        return html
+
+    async def _generate_positive_keywords_summary(self, aspect_sentiment_pairs: list) -> list:
+        if not aspect_sentiment_pairs:
+            return []
+
+        # Filter for positive sentiment pairs
+        positive_pairs = []
+        sentiment_dictionaries = {
+            **knowledge_base.adjectives, **knowledge_base.adverbs,
+            **knowledge_base.sentiment_nouns, **knowledge_base.idioms
+        }
+        for aspect, sentiment in aspect_sentiment_pairs:
+            if sentiment in sentiment_dictionaries:
+                scores = sentiment_dictionaries[sentiment]
+                if scores and any(s > 0 for s in scores):
+                    positive_pairs.append((aspect, sentiment))
+        
+        if not positive_pairs:
+            return []
+
+        # Use Counter to get initial frequencies
+        pair_counts = Counter(positive_pairs)
+        # Convert to a list of strings for the LLM prompt
+        pairs_str_list = [f"('{p[0]}', '{p[1]}'): {c}회" for p, c in pair_counts.items()]
+
+        prompt = f'''
+        당신은 사용자 리뷰에서 핵심 긍정 키워드를 추출하고 그룹화하는 마케팅 분석 전문가입니다.
+        아래는 '주체-감성' 쌍과 각 쌍의 언급 횟수 목록입니다.
+
+        [데이터]
+        {', '.join(pairs_str_list)}
+
+        [요청]
+        1. 의미가 유사한 '주체-감성' 쌍들을 하나의 대표 키워드로 그룹화해주세요.
+           (예: ('음식', '맛있다'), ('음식', '훌륭하다') -> "음식이 맛있어요")
+           (예: ('직원', '친절하다'), ('사장님', '친절하다') -> "직원이 친절해요")
+        2. 각 대표 키워드에 몇 개의 원본 쌍이 포함되었는지 합산하여 `count`를 계산해주세요.
+        3. 최종 결과는 사용자가 이해하기 쉬운 자연스러운 문장 형태의 `keyword`와 `count`를 포함하는 JSON 리스트 형식으로 반환해주세요.
+        4. 가장 많이 언급된 순서로 정렬해주세요.
+        5. 다른 설명 없이 JSON 리스트만 출력해주세요.
+
+        [출력 형식 예시]
+        [
+            {{"keyword": "음식이 맛있어요", "count": 21}},
+            {{"keyword": "재료가 신선해요", "count": 6}},
+            {{"keyword": "매장이 넓어요", "count": 6}},
+            {{"keyword": "직원이 친절해요", "count": 5}}
+        ]
+        '''
+        try:
+            response = await self.llm.ainvoke(prompt)
+            # Extract JSON from the response
+            json_str_match = re.search(r'\[.*\]', response.content, re.DOTALL)
+            if json_str_match:
+                return json.loads(json_str_match.group())
+            return []
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Error generating positive keywords summary: {e}")
+            return []
 
     def _calculate_satisfaction_boundaries(self, scores: list) -> dict:
         if not scores:
@@ -83,6 +183,7 @@ class SentimentAnalysisUseCase:
         blog_judgments_list = []
         all_scores = []
         all_negative_sentences = []
+        all_aspect_sentiment_pairs = []  # <--- Aggregate all pairs here
         seasonal_data = {"봄": {"pos": 0, "neg": 0}, "여름": {"pos": 0, "neg": 0}, "가을": {"pos": 0, "neg": 0}, "겨울": {"pos": 0, "neg": 0}, "정보없음": {"pos": 0, "neg": 0}}
         total_pos, total_neg = 0, 0
         
@@ -119,8 +220,10 @@ class SentimentAnalysisUseCase:
                     
                     consecutive_skips = 0
                     judgments = final_state.get("final_judgments", [])
+                    aspect_pairs = final_state.get("aspect_sentiment_pairs", [])
                     blog_judgments_list.append(judgments)
                     all_scores.extend([j['score'] for j in judgments])
+                    all_aspect_sentiment_pairs.extend(aspect_pairs)
                     
                     blog_results_list.append({
                         "블로그 제목": re.sub(r"<[^>]+>", "", blog_data["title"]).strip(),
@@ -224,7 +327,12 @@ class SentimentAnalysisUseCase:
         seasonal_pos_wc_paths = {}
         seasonal_neg_wc_paths = {}
 
+        # Generate "What I liked" summary
+        positive_keywords_data = await self._generate_positive_keywords_summary(all_aspect_sentiment_pairs)
+        positive_keywords_html = self._format_positive_keywords_html(positive_keywords_data, len(blog_results_list))
+
         return {
+            "positive_keywords_html": positive_keywords_html,
             "neg_summary_text": neg_summary_text,
             "overall_summary_text": overall_summary_text,
             "summary_csv_path": summary_csv_path,

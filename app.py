@@ -391,10 +391,10 @@ async def get_naver_review_info(festival_name, num_reviews):
 
 
 async def handle_generate_trend_graphs(festival_name):
-    yield gr.update(visible=True, open=True), gr.update(value="트렌드 그래프 생성 중...", visible=True), None, None
+    yield gr.update(visible=True, open=True), gr.update(value="트렌드 그래프 생성 중...", visible=True), gr.update(), gr.update()
     trend_image_yearly, trend_image_event, status_message = await analysis_use_case.generate_trend_graphs(festival_name)
     if trend_image_yearly is None and trend_image_event is None:
-         yield gr.update(visible=True, open=True), gr.update(value=status_message, visible=True), None, None
+         yield gr.update(visible=True, open=True), gr.update(value=status_message, visible=True), gr.update(), gr.update()
     else:
         yield gr.update(visible=True, open=True), gr.update(visible=False), trend_image_yearly, trend_image_event
 
@@ -415,14 +415,39 @@ async def handle_scrape_images(festival_name, num_blogs):
 
 async def handle_analyze_sentiment(festival_name, num_reviews):
     outputs_to_clear = [
-        gr.update(open=True), gr.update(value=""), gr.update(visible=False), gr.update(visible=False),
-        gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-        gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-        gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-        gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), 
-        gr.update(visible=False), gr.update(visible=False), None, None, None, 1, "/ 1",
-        gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-        gr.update(visible=False, open=False),
+        gr.update(open=True), 
+        gr.update(value=""), 
+        gr.update(visible=False), 
+        gr.update(visible=False),
+        gr.update(visible=False), 
+        gr.update(visible=False), 
+        gr.update(visible=False), 
+        gr.update(visible=False),
+        gr.update(visible=False), # 9. for positive_keywords
+        gr.update(visible=False), # 10. for summary
+        gr.update(visible=False), # 11. for overall_csv
+        gr.update(visible=False), # 12. spring_chart
+        gr.update(visible=False), # 13. summer_chart
+        gr.update(visible=False), # 14. autumn_chart
+        gr.update(visible=False), # 15. winter_chart
+        gr.update(visible=False), # 16. spring_pos_wc
+        gr.update(visible=False), # 17. spring_neg_wc
+        gr.update(visible=False), # 18. summer_pos_wc
+        gr.update(visible=False), # 19. summer_neg_wc
+        gr.update(visible=False), # 20. autumn_pos_wc
+        gr.update(visible=False), # 21. autumn_neg_wc
+        gr.update(visible=False), # 22. winter_pos_wc
+        gr.update(visible=False), # 23. winter_neg_wc
+        None,                     # 24. df_output
+        None,                     # 25. df_state
+        None,                     # 26. judgments_state
+        1,                        # 27. page_num_input
+        "/ 1",                    # 28. total_pages_output
+        gr.update(visible=False), # 29. blog_list_csv
+        gr.update(visible=False), # 30. individual_summary
+        gr.update(visible=False), # 31. individual_donut
+        gr.update(visible=False), # 32. individual_score
+        gr.update(visible=False, open=False), # 33. blog_detail_accordion
     ]
     
     if not festival_name:
@@ -454,6 +479,7 @@ async def handle_analyze_sentiment(festival_name, num_reviews):
             gr.update(value=distribution_description, visible=True), # sentiment_distribution_description
             gr.update(value=result["outlier_chart"], visible=result["outlier_chart"] is not None), # outlier_chart
             gr.update(value=outlier_description, visible=True), # outlier_description
+            gr.update(value=result["positive_keywords_html"], visible=bool(result["positive_keywords_html"])), # sentiment_positive_keywords
             gr.update(value=result["overall_summary_text"], visible=True), # sentiment_summary
             gr.update(value=result["summary_csv_path"], visible=result["summary_csv_path"] is not None), # sentiment_overall_csv
             
@@ -748,6 +774,7 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             sentiment_overall_csv = gr.File(
                 label="종합 분석 (CSV) 다운로드", visible=False
             )
+            sentiment_positive_keywords = gr.HTML(visible=False)
             with gr.Row():
                 sentiment_overall_chart = gr.Plot(label="전체 후기 요약", visible=False, scale=1)
                 sentiment_distribution_chart = gr.Image(label="만족도 점수 분포", visible=False, scale=1)
@@ -1155,6 +1182,7 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
             sentiment_distribution_description,
             outlier_chart,
             outlier_description,
+            sentiment_positive_keywords, # <--- Added output
             sentiment_summary,
             sentiment_overall_csv,
             sentiment_spring_chart,
