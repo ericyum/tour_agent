@@ -5,6 +5,11 @@ def setup_environment():
     """
     환경 변수 및 로깅 설정을 초기화합니다.
     """
+    # LangSmith 트레이싱 비활성화
+    os.environ["LANGCHAIN_TRACING_V2"] = "false"
+    os.environ.pop("LANGCHAIN_API_KEY", None)
+    os.environ.pop("LANGCHAIN_ENDPOINT", None)
+    
     # gRPC 로깅 수준 설정 (불필요한 ALTS 로그 메시지 숨기기)
     os.environ["GRPC_VERBOSITY"] = "ERROR"
     # KoNLPy/JPype 로딩 전, JVM 인코딩 설정 (Windows 환경에서 필수)
