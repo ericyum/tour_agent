@@ -247,11 +247,19 @@ def get_local_asset_path(asset_type: str, festival_name: str) -> str | None:
     asset_type can be 'best_images_and_icons/best_images' or 'best_images_and_icons/icons'.
     """
     base_dir = os.path.join(os.path.dirname(__file__), asset_type)
-    # Sanitize festival_name to create a valid filename prefix (only removing invalid characters, keeping spaces)
-    sanitized_name_base = re.sub(r'[\/*?:"<>|]', '', festival_name)
-    sanitized_name_base = re.sub(r'\s+', ' ', sanitized_name_base).strip() # Consolidate multiple spaces and strip leading/trailing
+    # Sanitize festival_name to create a valid filename prefix
+    # 1. Replace single quotes with underscores
+    temp_name = festival_name.replace("'", "_")
+    # 2. Replace any character that is NOT a Korean character, English letter, number, or space with an underscore
+    sanitized_name_base = re.sub(r'[^\w\s가-힣]', '_', temp_name)
+    # 3. Replace all spaces with underscores
+    sanitized_name_base = sanitized_name_base.replace(' ', '_')
+    # 4. Consolidate multiple underscores into a single underscore
+    sanitized_name_base = re.sub(r'_+', '_', sanitized_name_base)
+    # 5. Strip leading/trailing underscores
+    sanitized_name_base = sanitized_name_base.strip('_')
     print(f"[DEBUG] get_local_asset_path called for asset_type: {asset_type}, festival_name: {festival_name}")
-    print(f"[DEBUG] Sanitized name base (with spaces): {sanitized_name_base}")
+    print(f"[DEBUG] Sanitized name base: {sanitized_name_base}")
 
     if not os.path.exists(base_dir):
         print(f"[DEBUG] Base directory not found: {base_dir}")
@@ -264,11 +272,10 @@ def get_local_asset_path(asset_type: str, festival_name: str) -> str | None:
     # Special handling for icons: prioritize _symbol_trans, then _symbol_white
     if asset_type == 'best_images_and_icons/icons':
         preferred_suffixes = ['_symbol_trans', '_symbol_white']
-        # For icons, assume filenames use underscores instead of spaces
-        sanitized_name_for_icon = sanitized_name_base.replace(' ', '_')
+        
         for suffix in preferred_suffixes:
             for ext in extensions:
-                full_filename = f"{sanitized_name_for_icon}{suffix}{ext}"
+                full_filename = f"{sanitized_name_base}{suffix}{ext}"
                 file_path = os.path.join(base_dir, full_filename)
                 print(f"[DEBUG] Checking preferred icon path: {file_path}")
                 if os.path.exists(file_path):

@@ -2,72 +2,117 @@ import pandas as pd
 import json
 import os
 import asyncio
+import re
 from src.infrastructure.llm_client import get_llm_client
 
-async def classify_festival_with_llm(festival_name: str, overview: str, llm_client) -> str:
+FULL_CATEGORY_HIERARCHY = {
+    "계절과 자연": {
+        "자연경관": ["꽃 축제", "단풍 축제", "눈/얼음 축제", "바다/강 축제", "산/숲 축제"],
+        "자연현상": ["별/천문 축제", "일출/일몰 축제", "기타 자연현상"],
+        "생태/환경": ["생태 체험", "환경 보호", "기타 생태"]
+    },
+    "전통과 역사": {
+        "역사문화": ["역사 재현", "문화재 야행", "역사 인물 기념"],
+        "민속전통": ["민속놀이", "전통 공예/예술", "전통 의례/행사"],
+        "지역유산": ["지역 고유 전통", "기타 지역유산"]
+    },
+    "문화와 예술": {
+        "공연예술": ["음악 축제", "연극/뮤지컬", "무용/퍼포먼스"],
+        "시각예술": ["미술/조각", "사진/영상", "디자인/공예"],
+        "문학/미디어": ["문학/책 축제", "영화/영상 축제", "미디어 아트"],
+        "복합문화": ["복합 문화 예술", "다원 예술", "기타 문화예술"]
+    },
+    "미식과 특산물": {
+        "지역특산물": ["농산물 축제", "수산물 축제", "임산물 축제", "기타 특산물"],
+        "음식문화": ["음식/요리 축제", "길거리 음식", "세계 음식"],
+        "음료/주류": ["커피/차 축제", "맥주/와인 축제", "전통주 축제"]
+    },
+    "체험과 교육": {
+        "과학/기술": ["과학 체험", "기술 교육", "발명/창의"],
+        "공예/만들기": ["수공예", "도예/목공예", "DIY/만들기"],
+        "농촌/생태": ["농촌 체험", "생태 교육", "자연 학습"],
+        "역사/문화": ["역사 교육", "전통 문화 체험", "유적 탐방"]
+    },
+    "레저와 스포츠": {
+        "육상스포츠": ["걷기/달리기", "등산/트레킹", "자전거/마라톤"],
+        "수상스포츠": ["카약/래프팅", "서핑/요트", "낚시/해양"],
+        "겨울스포츠": ["스키/스노보드", "썰매/스케이트", "빙어/얼음낚시"],
+        "e스포츠/게임": ["e스포츠 대회", "보드게임/VR", "캐릭터/애니메이션"],
+        "익스트림/아웃도어": ["캠핑/백패킹", "패러글라이딩/짚라인", "기타 아웃도어"]
+    },
+    "도시와 커뮤니티": {
+        "도시이벤트": ["불꽃/빛 축제", "거리 퍼레이드", "야시장/플리마켓"],
+        "지역활성화": ["지역 상권", "도시 재생", "커뮤니티 행사"],
+        "축제/페스티벌": ["시민 참여", "거리 예술", "기타 도시 축제"]
+    },
+    "종교와 영성": {
+        "불교": ["연등회", "사찰 문화", "불교 의례"],
+        "기독교": ["성탄 마켓", "부활절 행사", "기독교 문화"],
+        "기타종교": ["기타 종교 행사", "영성/명상", "철학/인문"]
+    }
+}
+
+# 2. LLM에 한 번에 요청할 축제의 수를 상수로 정의 (API 안정성 및 토큰 제한 고려)
+BATCH_SIZE = 200
+
+# JSON 파싱 실패 시 대체 패턴
+JSON_FALLBACK_PATTERN = r'\{.*\}'
+
+async def classify_festivals_in_batch(festivals_batch: list, llm_client) -> dict:
     """
-    LLM을 사용하여 축제를 새로운 대분류로 분류합니다.
+    LLM을 사용하여 축제 목록(배치)을 미리 정의된 카테고리로 분류합니다.
     """
+    # LLM에 전달할 축제 목록을 간단한 형태로 변환 (제목과 개요만 포함)
+    festivals_info = [{"title": f["title"], "overview": f["overview"]} for f in festivals_batch]
+
     prompt = f"""
-    당신은 한국의 축제를 전문적으로 분류하는 전문가입니다.
-    아래 축제 이름과 개요를 바탕으로, 이 축제가 다음 7~10가지 대분류 중 어디에 속하는지 가장 적절한 하나의 대분류 이름을 반환해주세요.
-    만약 적절한 대분류가 없다면 기존 분류에 얽매이지 않고 새로운 대분류 이름을 직접 생성하여 반환해주세요.
+    당신은 수많은 한국 축제 데이터를 명확한 기준에 따라 분류하는 데이터 분석 전문가입니다.
 
-    [대분류 후보 (예시, 필요에 따라 더 적절한 분류를 생성해도 됩니다. 새로운 분류가 필요하면 직접 생성해주세요.)]
-    1. 문화예술 (음악, 미술, 공연, 문학 등)
-    2. 자연경관 (산, 바다, 꽃, 단풍 등 자연을 주제로 한 축제)
-    3. 지역특산물 (특정 지역의 농수산물, 음식 등을 주제로 한 축제)
-    4. 역사전통 (역사적 사건, 전통 문화, 유적 등을 주제로 한 축제)
-    5. 체험레저 (스포츠, 액티비티, 참여형 프로그램 등)
-    6. 도시생활 (도시에서 열리는 현대적인 이벤트, 거리 축제 등)
-    7. 산업과학 (특정 산업, 기술, 과학 등을 주제로 한 축제)
-    8. 종교의례 (특정 종교나 의례를 주제로 한 축제)
+    [분류 기준]
+    아래 정의된 대분류, 중분류, 소분류를 기준으로, 각 축제가 어떤 대분류, 중분류, 소분류에 가장 적합한지 하나씩 선택해주세요.
+    만약 적합한 소분류가 없다면, 해당 중분류의 '기타' 소분류를 선택해주세요.
 
-    [축제 정보]
-    - 축제 이름: {festival_name}
-    - 개요: {overview}
+    <대분류, 중분류 및 소분류 목록>
+    {json.dumps(FULL_CATEGORY_HIERARCHY, ensure_ascii=False, indent=2)}
+
+    [분류할 축제 목록]
+    {json.dumps(festivals_info, ensure_ascii=False, indent=2)}
 
     [출력 형식]
-    오직 하나의 대분류 이름만 반환해주세요. (예: 문화예술)
+    각 축제명과 할당된 대분류, 중분류 및 소분류 카테고리를 키-값 쌍으로 가지는 단일 JSON 객체를 반환해주세요.
+    다른 설명이나 추가 텍스트 없이 JSON 객체만 포함해야 합니다.
+
+    예시:
+    ```json
+    {{
+      "축제명1": {{"main_category": "계절과 자연", "middle_category": "자연경관", "sub_category": "꽃 축제"}},
+      "축제명2": {{"main_category": "전통과 역사", "middle_category": "역사문화", "sub_category": "역사 재현"}}
+    }}
+    ```
     """
     try:
         response = await llm_client.ainvoke(prompt)
-        return response.content.strip()
-    except Exception as e:
+        # LLM 응답에서 JSON 부분만 정확히 추출
+        json_match = re.search(r'```json\n(.*)\n```', response.content, re.DOTALL)
+        if json_match:
+            json_content = json_match.group(1)
+            return json.loads(json_content)
+        else:
+            # Fallback to direct parsing if not wrapped in ```json
+            json_match_fallback = re.search(JSON_FALLBACK_PATTERN, response.content, re.DOTALL)
+            if json_match_fallback:
+                return json.loads(json_match_fallback.group())
+            else:
+                print(f"LLM 응답에서 JSON을 찾을 수 없습니다: {response.content}")
+                return {}
+
+    except (json.JSONDecodeError, Exception) as e:
         print(f"LLM 분류 중 오류 발생: {e}")
-        return "분류 실패" # Return a specific category for failed classifications
-
-async def verify_category_with_llm(festival_name: str, overview: str, assigned_category: str, all_categories: list, llm_client) -> str:
-    """
-    LLM을 사용하여 축제의 분류가 적절한지 검증하고, 필요시 재분류합니다.
-    """
-    all_categories_str = ", ".join(sorted(list(set(all_categories))))
-    
-    prompt = f"""
-    당신은 한국의 축제를 전문적으로 분류하는 전문가입니다.
-    아래 축제 이름과 개요, 그리고 현재 할당된 대분류 정보를 바탕으로, 이 축제가 현재 대분류에 적절하게 분류되었는지 검증해주세요.
-    만약 현재 대분류가 적절하다면 '적절함'이라고만 반환해주세요.
-    만약 적절하지 않다면, 기존에 생성된 대분류 목록({all_categories_str}) 중에서 가장 적절한 대분류 이름을 반환하거나,
-    새로운 대분류가 필요하다고 판단되면 새로운 대분류 이름을 직접 생성하여 반환해주세요.
-
-    [축제 정보]
-    - 축제 이름: {festival_name}
-    - 개요: {overview}
-    - 현재 할당된 대분류: {assigned_category}
-
-    [출력 형식]
-    오직 하나의 대분류 이름만 반환해주세요. (예: 적절함 또는 문화예술 또는 새로운 분류명)
-    """
-    try:
-        response = await llm_client.ainvoke(prompt)
-        return response.content.strip()
-    except Exception as e:
-        print(f"LLM 검증 중 오류 발생: {e}")
-        return assigned_category # 오류 발생 시 기존 분류 유지
+        return {{}}
 
 async def reclassify_festivals():
     script_dir = os.path.dirname(__file__)
-    csv_path = "C:\\Users\\SBA\\github\\tour_agent\\database\\축제공연행사csv.CSV"
+    csv_path = os.path.join(script_dir, "database", "축제공연행사csv.CSV")
     output_dir = os.path.join(script_dir, "new_festivals_classification")
 
     os.makedirs(output_dir, exist_ok=True)
@@ -83,99 +128,100 @@ async def reclassify_festivals():
 
     llm_client = get_llm_client()
     
+    # 필요한 컬럼만 추출하고, NaN 값을 빈 문자열로 대체
     df_filtered = df[['title', 'overview', 'firstimage', 'eventstartdate', 'eventenddate', 'mapx', 'mapy']].fillna('')
+    
+    # DataFrame을 딕셔너리 리스트로 변환
+    all_festivals_data = df_filtered.to_dict('records')
 
-    initial_categorized_festivals = {}
-    print(f"총 {len(df_filtered)}개의 축제를 1차 분류합니다...")
+    # 최종 분류 결과를 저장할 딕셔너리 초기화
+    # 대분류 -> 중분류 -> 소분류 -> 축제 리스트
+    final_categorized_festivals = {
+        main_cat: {
+            middle_cat: {
+                sub_cat: [] for sub_cat in sub_cats
+            } for middle_cat, sub_cats in middle_cats.items()
+        } for main_cat, middle_cats in FULL_CATEGORY_HIERARCHY.items()
+    }
+    final_categorized_festivals["분류 실패"] = [] # 분류에 실패한 경우를 위한 카테고리
 
-    initial_tasks = []
-    for index, row in df_filtered.iterrows():
-        festival_name = row['title']
-        overview = row['overview']
-        initial_tasks.append(classify_festival_with_llm(festival_name, overview, llm_client))
+    print(f"총 {len(all_festivals_data)}개의 축제를 {BATCH_SIZE}개씩 묶어 분류를 시작합니다.")
 
-    initial_categories = await asyncio.gather(*initial_tasks)
-
-    for index, row in df_filtered.iterrows():
-        festival_name = row['title']
-        category = initial_categories[index]
+    # 전체 축제 데이터를 배치 크기만큼 나누어 처리
+    for i in range(0, len(all_festivals_data), BATCH_SIZE):
+        batch = all_festivals_data[i:i + BATCH_SIZE]
         
-        festival_data = {
-            "title": festival_name,
-            "overview": row['overview'],
-            "firstimage": row['firstimage'],
-            "eventstartdate": row['eventstartdate'],
-            "eventenddate": row['eventenddate'],
-            "mapx": row['mapx'],
-            "mapy": row['mapy'],
-        }
+        print(f"  ... {i+1}번부터 {i+len(batch)}번까지의 축제를 처리 중...")
+        
+        # LLM을 통해 현재 배치 분류
+        classified_batch = await classify_festivals_in_batch(batch, llm_client)
 
-        if category not in initial_categorized_festivals:
-            initial_categorized_festivals[category] = []
-        initial_categorized_festivals[category].append(festival_data)
-        # print(f"1차 분류: '{festival_name}' -> '{category}'") # 너무 많은 출력 방지
+        # 분류 결과를 기반으로 최종 딕셔너리에 데이터 추가
+        for festival_data in batch:
+            title = festival_data['title']
+            # LLM의 응답에서 해당 축제의 분류 결과를 가져옴
+            assigned_categories = classified_batch.get(title) # { "main_category": "...", "middle_category": "...", "sub_category": "..." }
 
-    print("1차 분류 완료. 이제 분류된 내용을 점검하고 필요시 재분류합니다...")
+            if assigned_categories and isinstance(assigned_categories, dict) and \
+               'main_category' in assigned_categories and \
+               'middle_category' in assigned_categories and \
+               'sub_category' in assigned_categories:
+                
+                main_cat = assigned_categories['main_category']
+                middle_cat = assigned_categories['middle_category']
+                sub_cat = assigned_categories['sub_category']
 
-    final_categorized_festivals = {}
-    max_verification_attempts = 2 # 각 축제당 최대 2번의 재분류 시도
+                if main_cat in final_categorized_festivals and \
+                   middle_cat in final_categorized_festivals[main_cat] and \
+                   sub_cat in final_categorized_festivals[main_cat][middle_cat]:
+                    final_categorized_festivals[main_cat][middle_cat][sub_cat].append(festival_data)
+                else:
+                    # LLM이 유효하지 않은 대분류/중분류/소분류를 반환한 경우
+                    final_categorized_festivals["분류 실패"].append(festival_data)
+                    print(f"    [분류 실패] '{title}' 축제 (할당된 대분류: {main_cat}, 중분류: {middle_cat}, 소분류: {sub_cat}) - 유효하지 않은 카테고리)")
+            else:
+                # LLM 응답 형식이 잘못되었거나 분류 정보가 누락된 경우
+                final_categorized_festivals["분류 실패"].append(festival_data)
+                print(f"    [분류 실패] '{title}' 축제 (LLM 응답 형식 오류 또는 분류 누락: {assigned_categories})")
 
-    # 모든 1차 분류 카테고리 목록을 준비
-    all_current_categories = list(initial_categorized_festivals.keys())
+    print("\n최종 분류 완료. JSON 파일을 생성합니다...")
 
-    verification_tasks = []
-    festivals_to_process = []
-
-    for initial_category, festivals in initial_categorized_festivals.items():
-        for festival_data in festivals:
-            festivals_to_process.append((festival_data, initial_category, 0)) # (festival_data, assigned_category, attempt_count)
-
-    while festivals_to_process:
-        current_festival_data, current_assigned_category, attempt_count = festivals_to_process.pop(0)
-        festival_name = current_festival_data['title']
-        overview = current_festival_data['overview']
-
-        if attempt_count >= max_verification_attempts:
-            print(f"[최대 시도 횟수 초과] '{festival_name}'은(는) '{current_assigned_category}'로 최종 분류됩니다.")
-            if current_assigned_category not in final_categorized_festivals:
-                final_categorized_festivals[current_assigned_category] = []
-            final_categorized_festivals[current_assigned_category].append(current_festival_data)
+    # 각 대분류별로 JSON 파일 생성 (내부에 중분류, 소분류별로 묶음)
+    for main_category, middle_categories_data in final_categorized_festivals.items():
+        if main_category == "분류 실패":
+            if middle_categories_data: # 분류 실패 항목이 있으면 별도 파일로 저장
+                sanitized_category = main_category.replace(" ", "_").replace("/", "_")
+                output_file_path = os.path.join(output_dir, f"festivals_type_{sanitized_category}.json")
+                with open(output_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(middle_categories_data, f, ensure_ascii=False, indent=2)
+                print(f"'{main_category}' 카테고리의 축제 {len(middle_categories_data)}개가 {output_file_path}에 저장되었습니다.")
             continue
 
-        # 현재까지 생성된 모든 카테고리 목록을 업데이트하여 LLM에 전달
-        all_current_categories = list(final_categorized_festivals.keys()) + list(initial_categorized_festivals.keys())
-        all_current_categories = list(set(all_current_categories))
-
-        verified_category = await verify_category_with_llm(
-            festival_name, overview, current_assigned_category, all_current_categories, llm_client
+        # 해당 대분류에 속한 축제가 하나라도 있는지 확인
+        has_festivals = any(
+            any(festivals for festivals in sub_categories_data.values())
+            for sub_categories_data in middle_categories_data.values()
         )
 
-        if verified_category == '적절함':
-            if current_assigned_category not in final_categorized_festivals:
-                final_categorized_festivals[current_assigned_category] = []
-            final_categorized_festivals[current_assigned_category].append(current_festival_data)
-            print(f"[검증 완료] '{festival_name}'은(는) '{current_assigned_category}'에 적절합니다.")
-        elif verified_category == current_assigned_category: # LLM이 같은 카테고리를 반환했지만 '적절함'이 아닌 경우 (재시도 필요 없음)
-            if current_assigned_category not in final_categorized_festivals:
-                final_categorized_festivals[current_assigned_category] = []
-            final_categorized_festivals[current_assigned_category].append(current_festival_data)
-            print(f"[검증 완료] '{festival_name}'은(는) '{current_assigned_category}'에 적절합니다. (LLM 재확인)")
-        else:
-            print(f"[재분류 필요] '{festival_name}' ('{current_assigned_category}' -> '{verified_category}') 재분류 시도: {attempt_count + 1}")
-            # 재분류가 필요한 경우, 다시 처리 목록에 추가 (시도 횟수 증가)
-            festivals_to_process.append((current_festival_data, verified_category, attempt_count + 1))
+        if not has_festivals:
+            continue
 
-    print("최종 분류 완료. JSON 파일을 생성합니다...")
-
-    for category, festivals in final_categorized_festivals.items():
-        # 파일명에 사용할 수 없는 문자 제거
-        sanitized_category = category.replace(" ", "_").replace("/", "_").replace("(", "").replace(")", "")
-        output_file_path = os.path.join(output_dir, f"festivals_type_{sanitized_category}.json")
+        sanitized_main_category = main_category.replace(" ", "_").replace("/", "_")
+        output_file_path = os.path.join(output_dir, f"festivals_type_{sanitized_main_category}.json")
+        
+        # 중분류, 소분류별로 묶인 데이터를 저장
         with open(output_file_path, 'w', encoding='utf-8') as f:
-            json.dump(festivals, f, ensure_ascii=False, indent=2)
-        print(f"'{category}' 카테고리의 축제 {len(festivals)}개가 {output_file_path}에 저장되었습니다.")
+            json.dump(middle_categories_data, f, ensure_ascii=False, indent=2)
+            
+        total_festivals_in_main_cat = sum(
+            len(fests) for sub_categories_data in middle_categories_data.values()
+            for fests in sub_categories_data.values()
+        )
+        print(f"'{main_category}' 카테고리의 축제 {total_festivals_in_main_cat}개가 {output_file_path}에 저장되었습니다.")
 
-    print("축제 재분류 및 JSON 파일 생성이 완료되었습니다.")
+    print("\n축제 재분류 및 JSON 파일 생성이 완료되었습니다.")
 
 if __name__ == "__main__":
+    # asyncio.run()은 스크립트당 한 번만 호출하는 것이 좋습니다.
+    # 만약 다른 비동기 작업과 함께 실행해야 한다면, main 함수를 만들어 관리하세요.
     asyncio.run(reclassify_festivals())
