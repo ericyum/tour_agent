@@ -6,7 +6,7 @@
 __pycache__/
 
 *.img
-*.png
+# *.png
 *.jpg
 *.jpeg
 *.webp

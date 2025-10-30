@@ -11,6 +11,7 @@ import io
 import pandas as pd
 from collections import Counter
 from datetime import datetime, timedelta
+from pathlib import Path
 
 # --- Environment Setup (must be first) ---
 from src.infrastructure.config.settings import (
@@ -239,6 +240,66 @@ def get_korean_font():
 
 KOREAN_FONT_PATH = get_korean_font()
 
+# --- New Helper Functions for Local Assets ---
+def get_local_asset_path(asset_type: str, festival_name: str) -> str | None:
+    """
+    Checks for a local asset (image or icon) for a given festival name.
+    asset_type can be 'best_images_and_icons/best_images' or 'best_images_and_icons/icons'.
+    """
+    base_dir = os.path.join(os.path.dirname(__file__), asset_type)
+    # Sanitize festival_name to create a valid filename prefix (only removing invalid characters, keeping spaces)
+    sanitized_name_base = re.sub(r'[\/*?:"<>|]', '', festival_name)
+    sanitized_name_base = re.sub(r'\s+', ' ', sanitized_name_base).strip() # Consolidate multiple spaces and strip leading/trailing
+    print(f"[DEBUG] get_local_asset_path called for asset_type: {asset_type}, festival_name: {festival_name}")
+    print(f"[DEBUG] Sanitized name base (with spaces): {sanitized_name_base}")
+
+    if not os.path.exists(base_dir):
+        print(f"[DEBUG] Base directory not found: {base_dir}")
+        return None
+
+    print(f"[DEBUG] Searching in {base_dir} for base: {sanitized_name_base}")
+
+    extensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp'] # Prioritize PNG for icons
+
+    # Special handling for icons: prioritize _symbol_trans, then _symbol_white
+    if asset_type == 'best_images_and_icons/icons':
+        preferred_suffixes = ['_symbol_trans', '_symbol_white']
+        # For icons, assume filenames use underscores instead of spaces
+        sanitized_name_for_icon = sanitized_name_base.replace(' ', '_')
+        for suffix in preferred_suffixes:
+            for ext in extensions:
+                full_filename = f"{sanitized_name_for_icon}{suffix}{ext}"
+                file_path = os.path.join(base_dir, full_filename)
+                print(f"[DEBUG] Checking preferred icon path: {file_path}")
+                if os.path.exists(file_path):
+                    return file_path
+    # Special handling for best_images: prioritize _final_font
+    elif asset_type == 'best_images_and_icons/best_images':
+        preferred_suffix = '_final_font'
+        # For best images, assume filenames keep spaces
+        for ext in extensions:
+            full_filename = f"{sanitized_name_base}{preferred_suffix}{ext}"
+            file_path = os.path.join(base_dir, full_filename)
+            print(f"[DEBUG] Checking preferred best image path: {file_path}")
+            if os.path.exists(file_path):
+                return file_path
+
+    # Fallback to general search (if preferred not found, or for other asset_types)
+    # This fallback will also use sanitized_name_base (with spaces)
+    for filename in os.listdir(base_dir):
+        name_without_ext, ext = os.path.splitext(filename)
+        print(f"[DEBUG] Checking general asset filename: {filename} (base: {sanitized_name_base})")
+        if name_without_ext.startswith(sanitized_name_base) and ext.lower() in extensions:
+            return os.path.join(base_dir, filename)
+            
+    return None
+
+def get_local_best_image_path(festival_name: str) -> str | None:
+    return get_local_asset_path('best_images_and_icons/best_images', festival_name)
+
+def get_local_icon_path(festival_name: str) -> str | None:
+    return get_local_asset_path('best_images_and_icons/icons', festival_name)
+
 from src.application.use_cases.analysis_use_case import AnalysisUseCase
 
 analysis_use_case = AnalysisUseCase(
@@ -275,7 +336,10 @@ def display_page(results, page):
     
     gallery_output = []
     for item in page_results:
-        image = item.get("firstimage", NO_IMAGE_URL) or NO_IMAGE_URL
+        festival_title = item.get("title", "")
+        print(f"[DEBUG] Processing festival in display_page: {festival_title}")
+        local_image = get_local_best_image_path(festival_title)
+        image = local_image if local_image else (item.get("firstimage", NO_IMAGE_URL) or NO_IMAGE_URL)
         title = item.get("title", "제목 없음")
         if "ranking_score" in item:
             title = f"점수: {item.get('ranking_score', 'N/A')} - {title}"
@@ -338,9 +402,21 @@ precaution_agent = PrecautionAgent()
 
 
 async def display_festival_details_and_precautions(evt: gr.SelectData, results, page_str):
+    print(f"[DEBUG] display_festival_details_and_precautions called.")
+    print(f"[DEBUG] evt.index: {evt.index}")
+    print(f"[DEBUG] len(results): {len(results)}")
+    print(f"[DEBUG] page_str: {page_str}")
+    print(f"[DEBUG] PAGE_SIZE: {PAGE_SIZE}")
+
     page = int(page_str.split("/")[0].strip())
     global_index = (page - 1) * PAGE_SIZE + evt.index
+    print(f"[DEBUG] Calculated global_index: {global_index}")
     
+    if global_index >= len(results) or global_index < 0:
+        print(f"[ERROR] IndexError detected: global_index ({global_index}) is out of range for results list (length {len(results)}).")
+        yield gr.update(value="선택된 축제 정보를 찾을 수 없습니다. 다시 검색하거나 다른 축제를 선택해주세요."), None, None, gr.update(visible=False)
+        return
+
     selected_item = results[global_index]
     original_title = selected_item.get("title", "")
     
@@ -351,6 +427,17 @@ async def display_festival_details_and_precautions(evt: gr.SelectData, results, 
         return
 
     details_list = []
+    
+    # Add local icon if available
+    local_icon = get_local_icon_path(original_title)
+    print(f"[DEBUG] Festival Title: {original_title}")
+    print(f"[DEBUG] Local Icon Path found: {local_icon}")
+    if local_icon:
+        # Use Path.as_posix() to correctly convert Windows paths to URL-friendly paths
+        gradio_served_path = f"/gradio_api/file={Path(local_icon).as_posix()}"
+        print(f"[DEBUG] Gradio served path for icon: {gradio_served_path}")
+        details_list.append(f"<img src=\"{gradio_served_path}\">\n")
+
     score_keys = {
         "ranking_score": "종합 순위 점수",
         "time_score": "시기성 점수",
@@ -1624,4 +1711,4 @@ if __name__ == "__main__":
 
     ALL_FESTIVAL_CATEGORIES = load_festival_categories_and_maps()
 
-    demo.launch(allowed_paths=["assets", "temp_img"])
+    demo.launch(allowed_paths=["assets", "temp_img", "best_images_and_icons"])
