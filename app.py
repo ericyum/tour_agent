@@ -244,61 +244,64 @@ KOREAN_FONT_PATH = get_korean_font()
 def get_local_asset_path(asset_type: str, festival_name: str) -> str | None:
     """
     Checks for a local asset (image or icon) for a given festival name.
-    asset_type can be 'best_images_and_icons/best_images' or 'best_images_and_icons/icons'.
+    This version attempts to find files by trying different sanitization methods
+    to account for inconsistencies in filenames (spaces vs. underscores).
     """
     base_dir = os.path.join(os.path.dirname(__file__), asset_type)
-    # Sanitize festival_name to create a valid filename prefix
-    # 1. Replace single quotes with underscores
-    temp_name = festival_name.replace("'", "_")
-    # 2. Replace any character that is NOT a Korean character, English letter, number, or space with an underscore
-    sanitized_name_base = re.sub(r'[^\w\s가-힣]', '_', temp_name)
-    # 3. Replace all spaces with underscores
-    sanitized_name_base = sanitized_name_base.replace(' ', '_')
-    # 4. Consolidate multiple underscores into a single underscore
-    sanitized_name_base = re.sub(r'_+', '_', sanitized_name_base)
-    # 5. Strip leading/trailing underscores
-    sanitized_name_base = sanitized_name_base.strip('_')
-    print(f"[DEBUG] get_local_asset_path called for asset_type: {asset_type}, festival_name: {festival_name}")
-    print(f"[DEBUG] Sanitized name base: {sanitized_name_base}")
-
     if not os.path.exists(base_dir):
         print(f"[DEBUG] Base directory not found: {base_dir}")
         return None
 
-    print(f"[DEBUG] Searching in {base_dir} for base: {sanitized_name_base}")
+    # --- Flexible Sanitization Logic ---
+    # 1. Basic sanitization (allow parentheses, remove other problematic chars)
+    sanitized_base = re.sub(r'[^\w\s가-힣.()-]', '_', festival_name.replace("'", "_"))
+    sanitized_base = re.sub(r'_+', '_', sanitized_base).strip('_')
 
-    extensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp'] # Prioritize PNG for icons
+    # 2. Create variations to check
+    possible_bases = [sanitized_base]
+    if ' ' in sanitized_base:
+        # Also check a version with spaces replaced by underscores
+        possible_bases.append(sanitized_base.replace(' ', '_'))
+    
+    # Remove duplicates
+    possible_bases = list(dict.fromkeys(possible_bases))
 
-    # Special handling for icons: prioritize _symbol_trans, then _symbol_white
-    if asset_type == 'best_images_and_icons/icons':
-        preferred_suffixes = ['_symbol_trans', '_symbol_white']
-        
-        for suffix in preferred_suffixes:
+    print(f"[DEBUG] get_local_asset_path called for: {festival_name}")
+    print(f"[DEBUG] Checking possible base names: {possible_bases}")
+
+    extensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp']
+
+    # --- Search Logic ---
+    for base in possible_bases:
+        print(f"[DEBUG] Searching in {base_dir} for base: {base}")
+
+        # A. Exact match with preferred suffixes (for icons and best_images)
+        if asset_type == 'best_images_and_icons/icons':
+            preferred_suffixes = ['_symbol_trans', '_symbol_white']
+            for suffix in preferred_suffixes:
+                for ext in extensions:
+                    full_filename = f"{base}{suffix}{ext}"
+                    file_path = os.path.join(base_dir, full_filename)
+                    if os.path.exists(file_path):
+                        print(f"[DEBUG] Exact match found: {file_path}")
+                        return file_path
+        elif asset_type == 'best_images_and_icons/best_images':
+            preferred_suffix = '_final_font'
             for ext in extensions:
-                full_filename = f"{sanitized_name_base}{suffix}{ext}"
+                full_filename = f"{base}{preferred_suffix}{ext}"
                 file_path = os.path.join(base_dir, full_filename)
-                print(f"[DEBUG] Checking preferred icon path: {file_path}")
                 if os.path.exists(file_path):
+                    print(f"[DEBUG] Exact match found: {file_path}")
                     return file_path
-    # Special handling for best_images: prioritize _final_font
-    elif asset_type == 'best_images_and_icons/best_images':
-        preferred_suffix = '_final_font'
-        # For best images, assume filenames keep spaces
-        for ext in extensions:
-            full_filename = f"{sanitized_name_base}{preferred_suffix}{ext}"
-            file_path = os.path.join(base_dir, full_filename)
-            print(f"[DEBUG] Checking preferred best image path: {file_path}")
-            if os.path.exists(file_path):
-                return file_path
 
-    # Fallback to general search (if preferred not found, or for other asset_types)
-    # This fallback will also use sanitized_name_base (with spaces)
-    for filename in os.listdir(base_dir):
-        name_without_ext, ext = os.path.splitext(filename)
-        print(f"[DEBUG] Checking general asset filename: {filename} (base: {sanitized_name_base})")
-        if name_without_ext.startswith(sanitized_name_base) and ext.lower() in extensions:
-            return os.path.join(base_dir, filename)
-            
+        # B. Fallback to 'in' check for each base variation
+        for filename in os.listdir(base_dir):
+            name_without_ext, ext = os.path.splitext(filename)
+            if base in name_without_ext and ext.lower() in extensions:
+                file_path = os.path.join(base_dir, filename)
+                print(f"[DEBUG] Fallback 'in' match found: {file_path}")
+                return file_path
+                
     return None
 
 def get_local_best_image_path(festival_name: str) -> str | None:
