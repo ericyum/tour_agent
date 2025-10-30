@@ -324,23 +324,33 @@ def update_pagination_buttons(current_page, total_pages):
 
 
 from src.application.services.festival_service import get_festival_details_by_title
+from src.application.agents.precaution_agent import PrecautionAgent
+
+# --- Load Final Classification Data ---
+try:
+    final_classification_df = pd.read_csv("festival_final_classification.csv")
+    festival_info_lookup = final_classification_df.set_index('festival_name')[['detailed_category', 'prohibited_behaviors']].to_dict('index')
+except FileNotFoundError:
+    print("Warning: festival_final_classification.csv not found. Precaution feature will be disabled.")
+    festival_info_lookup = {}
+
+precaution_agent = PrecautionAgent()
 
 
-def display_festival_details(evt: gr.SelectData, results, page_str):
+async def display_festival_details_and_precautions(evt: gr.SelectData, results, page_str):
     page = int(page_str.split("/")[0].strip())
     global_index = (page - 1) * PAGE_SIZE + evt.index
     
     selected_item = results[global_index]
-    # The title in the results dict is clean, even if the gallery shows a score
     original_title = selected_item.get("title", "")
     
     details = get_festival_details_by_title(original_title)
 
     if not details:
-        return gr.update(value="정보를 찾을 수 없습니다."), None, None
+        yield gr.update(value="정보를 찾을 수 없습니다."), None, None, gr.update(visible=False)
+        return
 
     details_list = []
-    # Add the new scores to the details view if they exist
     score_keys = {
         "ranking_score": "종합 순위 점수",
         "time_score": "시기성 점수",
@@ -352,7 +362,7 @@ def display_festival_details(evt: gr.SelectData, results, page_str):
         if key in selected_item:
             details_list.append(f"**{display_name}**: {selected_item[key]}")
 
-    if details_list: # Add a separator if scores were added
+    if details_list:
         details_list.append("---")
 
     exclude_cols = [
@@ -371,7 +381,44 @@ def display_festival_details(evt: gr.SelectData, results, page_str):
 
     details_text = "\n\n".join(details_list)
 
-    return gr.update(value=details_text), details.get("title"), details
+    # --- New Precaution Logic ---
+    precautions_text = ""
+    precautions_visible = False
+    
+    if festival_info_lookup and original_title in festival_info_lookup:
+        festival_info = festival_info_lookup[original_title]
+        detailed_cat = festival_info.get('detailed_category')
+        prohibited_behaviors = festival_info.get('prohibited_behaviors')
+
+        # First, yield the details and a loading message for precautions
+        yield (
+            gr.update(value=details_text),
+            original_title,
+            details,
+            gr.update(value="⏳ AI가 맞춤형 에티켓을 생성 중입니다...", visible=True)
+        )
+
+        if detailed_cat or prohibited_behaviors:
+            precautions_text = await precaution_agent.generate_precautions(
+                original_title,
+                detailed_cat,
+                prohibited_behaviors
+            )
+            precautions_visible = True
+        else:
+            precautions_text = "이 축제에 대한 세부 주의사항 정보가 없습니다."
+            precautions_visible = True
+    else:
+        precautions_text = ""
+        precautions_visible = False
+
+    # Final yield with all the content
+    yield (
+        gr.update(value=details_text),
+        original_title,
+        details,
+        gr.update(value=precautions_text, visible=precautions_visible)
+    )
 
 
 async def get_naver_review_info(festival_name, num_reviews):
@@ -612,6 +659,7 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
 
     with gr.Accordion("축제 상세 정보", open=False) as details_accordion:
         festival_details_output = gr.Markdown()
+        precautions_output = gr.Markdown(label="AI 기반 에티켓 가이드", visible=False)
         with gr.Row():
             num_blogs_for_images = gr.Slider(
                 minimum=1,
@@ -1114,12 +1162,13 @@ with gr.Blocks(css=CUSTOM_CSS) as demo:
     next_button.click(fn=lambda r, p: display_paginated_gallery(r, p, 1), inputs=[results_state, page_display], outputs=[festival_gallery, page_display, page_button_1, page_button_2, page_button_3, page_button_4, page_button_5])
 
     festival_gallery.select(
-        fn=display_festival_details,
+        fn=display_festival_details_and_precautions,
         inputs=[results_state, page_display],
         outputs=[
             festival_details_output,
             selected_festival_state,
             selected_festival_details_state,
+            precautions_output
         ],
     ).then(
         fn=lambda x: x,
