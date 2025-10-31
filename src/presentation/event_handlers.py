@@ -10,7 +10,7 @@ from pathlib import Path
 
 # --- Custom Module Imports ---
 from src.infrastructure.config.loader import (
-    ICON_MAP, KOREAN_FONT_PATH, TITLE_TO_CAT_NAMES, ALL_FESTIVAL_CATEGORIES, FESTIVAL_INFO_LOOKUP
+    ICON_MAP, KOREAN_FONT_PATH, TITLE_TO_CAT_NAMES, ALL_FESTIVAL_CATEGORIES, FESTIVAL_INFO_LOOKUP, BEST_IMAGES_MAP
 )
 from src.application.core.constants import (
     CATEGORY_TO_ICON_MAP, NO_IMAGE_URL, PAGE_SIZE, COLUMN_TRANSLATIONS, AREA_CODE_MAP, SIGUNGU_CODE_MAP
@@ -51,19 +51,12 @@ def get_local_asset_path(asset_type: str, festival_name: str) -> str | None:
                 return file_path
         return None
     if asset_type == 'best_images_and_icons/best_images':
-        sanitized_name_base = re.sub(r'[^가-힣ㄱ-ㆎꥠ-꥿가-힯ᄀ-ᇿ㄰-㆏ꥠ-꥿ힰ-퟿\w\s.()&,-]', '_', festival_name.replace("'", "_"))
-        sanitized_name_base = re.sub(r'_+', '_', sanitized_name_base).strip('_')
-        possible_bases = [sanitized_name_base]
-        if ' ' in sanitized_name_base:
-            possible_bases.append(sanitized_name_base.replace(' ', '_'))
-        preferred_suffix = '_final_font'
-        extensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp']
-        for base in possible_bases:
-            for ext in extensions:
-                full_filename = f"{base}{preferred_suffix}{ext}"
-                file_path = os.path.join(base_dir, full_filename)
-                if os.path.exists(file_path):
-                    return file_path
+        image_filename = BEST_IMAGES_MAP.get(festival_name)
+        if image_filename:
+            file_path = os.path.join(base_dir, image_filename)
+            if os.path.exists(file_path):
+                return file_path
+        return None
     return None
 
 def get_local_best_image_path(festival_name: str) -> str | None:
@@ -162,6 +155,10 @@ async def display_festival_details_and_precautions(evt: gr.SelectData, results, 
         yield gr.update(value="정보를 찾을 수 없습니다."), None, None, gr.update(visible=False)
         return
     details_list = []
+    local_best_image = get_local_best_image_path(original_title)
+    if local_best_image:
+        gradio_served_path = f"/gradio_api/file={Path(local_best_image).as_posix()}"
+        details_list.append(f'<img src="{gradio_served_path}" width="200">')
     local_icon = get_local_icon_path(original_title)
     if local_icon:
         gradio_served_path = f"/gradio_api/file={Path(local_icon).as_posix()}"

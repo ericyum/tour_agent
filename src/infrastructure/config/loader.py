@@ -18,6 +18,15 @@ def load_icon_map():
         print(f"Warning: Could not load icon_map.json. Error: {e}")
         return {}
 
+def load_best_images_map():
+    best_images_map_path = os.path.join(PROJECT_ROOT, 'best_images_and_icons', 'best_images_map.json')
+    try:
+        with open(best_images_map_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Warning: Could not load best_images_map.json. Error: {e}")
+        return {}
+
 def load_festival_categories_and_maps():
     festivals_dir = os.path.join(PROJECT_ROOT, "festivals")
     all_categories = {}
@@ -87,6 +96,7 @@ def load_festival_info_lookup():
 print("Loading application configurations...")
 
 ICON_MAP = load_icon_map()
+BEST_IMAGES_MAP = load_best_images_map()
 ALL_FESTIVAL_CATEGORIES, TITLE_TO_CAT_NAMES, CAT_NAME_TO_CODE = load_festival_categories_and_maps()
 KOREAN_FONT_PATH = get_korean_font()
 FESTIVAL_INFO_LOOKUP = load_festival_info_lookup()
