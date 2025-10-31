@@ -26,13 +26,14 @@ SIGUNGU_CODE_MAP = {
 }
 
 CATEGORY_TO_ICON_MAP = {
-    "도시와지역이벤트": "mask_city",
-    "문화예술과공연": "mask_happy",
-    "산업과지식": "mask_industry",
-    "자연과계절": "mask_nature",
-    "전통과역사": "mask_tradition",
-    "지역특산물과음식": "mask_food",
-    "체험과레저": "mask_sport"
+    "계절과 자연": "mask_nature",
+    "전통과 역사": "mask_tradition",
+    "문화와 예술": "mask_happy",
+    "미식과 특산물": "mask_food",
+    "체험과 교육": "mask_industry",
+    "레저와 스포츠": "mask_sport",
+    "도시와 커뮤니티": "mask_city",
+    "종교와 영성": "mask_happy" # Reusing a mask
 }
 
 NO_IMAGE_URL = "https://placehold.co/300x200?text=No+Image"
