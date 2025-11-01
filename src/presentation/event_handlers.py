@@ -175,7 +175,7 @@ async def display_festival_details_and_precautions(evt: gr.SelectData, results, 
             display_key = COLUMN_TRANSLATIONS.get(key, key)
             details_list.append(f"**{display_key}**: {value}")
     details_text = "\n\n".join(details_list)
-    yield gr.update(value=details_text), original_title, details, gr.update(value="⏳ AI가 맞춤형 에티켓을 생성 중입니다...", visible=True)
+    yield gr.update(value=details_text), original_title, details, gr.update(value="⏳ AI가 맞춤형 에티켓을 생성 중입니다...", visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True)
     precautions_text = ""
     if FESTIVAL_INFO_LOOKUP and original_title in FESTIVAL_INFO_LOOKUP:
         festival_info = FESTIVAL_INFO_LOOKUP[original_title]
@@ -185,7 +185,7 @@ async def display_festival_details_and_precautions(evt: gr.SelectData, results, 
             precautions_text = await precaution_agent.generate_precautions(original_title, detailed_cat, prohibited_behaviors)
     if not precautions_text:
         precautions_text = "이 축제에 대한 세부 주의사항 정보가 없습니다."
-    yield gr.update(value=details_text), original_title, details, gr.update(value=precautions_text, visible=True)
+    yield gr.update(value=details_text), original_title, details, gr.update(value=precautions_text, visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True)
 
 async def get_naver_review_info(festival_name, num_reviews):
     if not festival_name:

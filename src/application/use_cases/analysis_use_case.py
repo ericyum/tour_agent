@@ -140,8 +140,7 @@ class AnalysisUseCase:
         main_cat = main_cat_tuple[0] if main_cat_tuple else None
         icon_name = None
         if main_cat:
-            normalized_cat_name = main_cat.replace(" ", "")
-            icon_name = self.cat_to_icon_map.get(normalized_cat_name)
+            icon_name = self.cat_to_icon_map.get(main_cat)
 
         mask_array = None
         if icon_name:
@@ -150,7 +149,6 @@ class AnalysisUseCase:
                 try:
                     icon_image = Image.open(path).convert("L")
                     mask_array = np.array(icon_image)
-                    mask_array = 255 - mask_array
                 except Exception as e:
                     print(f"Error loading mask image: {e}")
 
@@ -171,6 +169,8 @@ class AnalysisUseCase:
             if counts:
                 wc = WordCloud(
                     font_path=self.font_path,
+                    width=800,
+                    height=800,
                     background_color="white",
                     mask=mask_array,
                     contour_color="steelblue",

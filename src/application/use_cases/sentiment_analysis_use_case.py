@@ -183,8 +183,9 @@ class SentimentAnalysisUseCase:
         blog_judgments_list = []
         all_scores = []
         all_negative_sentences = []
-        all_aspect_sentiment_pairs = []  # <--- Aggregate all pairs here
+        all_aspect_sentiment_pairs = []
         seasonal_data = {"봄": {"pos": 0, "neg": 0}, "여름": {"pos": 0, "neg": 0}, "가을": {"pos": 0, "neg": 0}, "겨울": {"pos": 0, "neg": 0}, "정보없음": {"pos": 0, "neg": 0}}
+        seasonal_aspect_pairs = {"봄": [], "여름": [], "가을": [], "겨울": [], "정보없음": []}
         total_pos, total_neg = 0, 0
         
         start_index = 1
@@ -224,6 +225,10 @@ class SentimentAnalysisUseCase:
                     blog_judgments_list.append(judgments)
                     all_scores.extend([j['score'] for j in judgments])
                     all_aspect_sentiment_pairs.extend(aspect_pairs)
+
+                    season = get_season(blog_data.get("postdate", ""))
+                    if season in seasonal_aspect_pairs:
+                        seasonal_aspect_pairs[season].extend(aspect_pairs)
                     
                     blog_results_list.append({
                         "블로그 제목": re.sub(r"<[^>]+>", "", blog_data["title"]).strip(),
@@ -308,7 +313,7 @@ class SentimentAnalysisUseCase:
                 "부정 문장 수": neg_count,
                 "긍정 비율 (%)": f"{pos_perc:.1f}",
                 "부정 비율 (%)": f"{neg_perc:.1f}",
-                "긍/부정 문장 요약": "\n---\n".join([f"[{j['final_verdict']}({j['satisfaction_level']}점)] {j['sentence']}" for j in judgments]),
+                "긍/부정 문장 요약": "\n---\n".join([f"[{j['final_verdict']}({j['satisfaction_level']}점)] {j['sentence']}"]),
             })
 
         overall_avg_satisfaction = np.mean(all_satisfaction_levels) if all_satisfaction_levels else 3.0
@@ -326,6 +331,26 @@ class SentimentAnalysisUseCase:
 
         seasonal_pos_wc_paths = {}
         seasonal_neg_wc_paths = {}
+
+        for season, pairs in seasonal_aspect_pairs.items():
+            if season == "정보없음" or not pairs:
+                continue
+            
+            mask_name_map = {"봄": "mask_spring", "여름": "mask_summer", "가을": "mask_fall", "겨울": "mask_winter"}
+            mask_filename = mask_name_map.get(season)
+            mask_path = None
+            if mask_filename:
+                mask_path = os.path.join(self.script_dir, "assets", "seasons", f"{mask_filename}.png")
+
+            pos_path, neg_path = create_sentiment_wordclouds(
+                aspect_sentiment_pairs=pairs,
+                keyword=festival_name,
+                mask_path=mask_path
+            )
+            if pos_path:
+                seasonal_pos_wc_paths[season] = pos_path
+            if neg_path:
+                seasonal_neg_wc_paths[season] = neg_path
 
         # Generate "What I liked" summary
         positive_keywords_data = await self._generate_positive_keywords_summary(all_aspect_sentiment_pairs)

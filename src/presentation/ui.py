@@ -188,7 +188,10 @@ def create_ui():
         first_page_button.click(fn=event_handlers.display_page, inputs=[results_state, gr.State(1)], outputs=[festival_gallery, page_display] + page_buttons)
         last_page_button.click(fn=lambda r, tp: event_handlers.display_page(r, tp), inputs=[results_state, total_pages_state], outputs=[festival_gallery, page_display] + page_buttons)
 
-        festival_gallery.select(fn=event_handlers.display_festival_details_and_precautions, inputs=[results_state, page_display], outputs=[festival_details_output, selected_festival_state, selected_festival_details_state, precautions_output])
+        festival_gallery.select(fn=event_handlers.display_festival_details_and_precautions, inputs=[results_state, page_display], outputs=[
+            festival_details_output, selected_festival_state, selected_festival_details_state, precautions_output,
+            naver_review_accordion, trend_accordion, wordcloud_accordion, sentiment_accordion, recommend_accordion, image_gallery_accordion
+        ])
 
         image_collect_button.click(fn=event_handlers.handle_scrape_images, inputs=[selected_festival_state, num_blogs_for_images], outputs=[image_gallery, image_gallery_accordion, scraped_urls_output])
         naver_search_btn.click(fn=event_handlers.get_naver_review_info, inputs=[selected_festival_state, num_reviews_naver_summary], outputs=[naver_review_output, naver_review_accordion])
