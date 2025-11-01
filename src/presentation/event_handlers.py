@@ -146,19 +146,19 @@ async def display_festival_details_and_precautions(evt: gr.SelectData, results, 
     page = int(page_str.split("/")[0].strip())
     global_index = (page - 1) * PAGE_SIZE + evt.index
     if global_index >= len(results) or global_index < 0:
-        yield gr.update(value="선택된 축제 정보를 찾을 수 없습니다."), None, None, gr.update(visible=False)
+        # Add a placeholder for the new accordion output
+        yield gr.update(value="선택된 축제 정보를 찾을 수 없습니다."), None, None, gr.update(visible=False), None, None, None, None, None, None, None, None
         return
     selected_item = results[global_index]
     original_title = selected_item.get("title", "")
     details = get_festival_details_by_title(original_title)
     if not details:
-        yield gr.update(value="정보를 찾을 수 없습니다."), None, None, gr.update(visible=False)
+        # Add a placeholder for the new accordion output
+        yield gr.update(value="정보를 찾을 수 없습니다."), None, None, gr.update(visible=False), None, None, None, None, None, None, None, None
         return
     details_list = []
     local_best_image = get_local_best_image_path(original_title)
-    if local_best_image:
-        gradio_served_path = f"/gradio_api/file={Path(local_best_image).as_posix()}"
-        details_list.append(f'<img src="{gradio_served_path}" width="200">')
+    # Removed the display of local_best_image as per user request.
     local_icon = get_local_icon_path(original_title)
     if local_icon:
         gradio_served_path = f"/gradio_api/file={Path(local_icon).as_posix()}"
@@ -175,7 +175,8 @@ async def display_festival_details_and_precautions(evt: gr.SelectData, results, 
             display_key = COLUMN_TRANSLATIONS.get(key, key)
             details_list.append(f"**{display_key}**: {value}")
     details_text = "\n\n".join(details_list)
-    yield gr.update(value=details_text), original_title, details, gr.update(value="⏳ AI가 맞춤형 에티켓을 생성 중입니다...", visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True)
+    # Add gr.update(open=True) for the details_accordion
+    yield gr.update(value=details_text), original_title, details, gr.update(value="⏳ AI가 맞춤형 에티켓을 생성 중입니다...", visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), selected_item, gr.update(open=True)
     precautions_text = ""
     if FESTIVAL_INFO_LOOKUP and original_title in FESTIVAL_INFO_LOOKUP:
         festival_info = FESTIVAL_INFO_LOOKUP[original_title]
@@ -185,7 +186,8 @@ async def display_festival_details_and_precautions(evt: gr.SelectData, results, 
             precautions_text = await precaution_agent.generate_precautions(original_title, detailed_cat, prohibited_behaviors)
     if not precautions_text:
         precautions_text = "이 축제에 대한 세부 주의사항 정보가 없습니다."
-    yield gr.update(value=details_text), original_title, details, gr.update(value=precautions_text, visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True)
+    # Add gr.update(open=True) for the details_accordion
+    yield gr.update(value=details_text), original_title, details, gr.update(value=precautions_text, visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), selected_item, gr.update(open=True)
 
 async def get_naver_review_info(festival_name, num_reviews):
     if not festival_name:
@@ -283,12 +285,13 @@ async def handle_rank_places(places_list, num_reviews, top_n, is_course, progres
     ranked_places, status, gallery, report = await ranking_use_case.rank_places(places_list=places_list, num_reviews=num_reviews, top_n=top_n, progress=progress, is_course=is_course)
     return ranked_places, status, gallery, gr.update(value=report, visible=True)
 
-def update_selection_and_details(evt: gr.SelectData, items: list):
+def handle_item_selection(evt: gr.SelectData, items: list):
+    """Handles the selection of an item from any gallery, updates the temp state, and shows details."""
     if not evt or not items or evt.index >= len(items):
-        return None, gr.update(), gr.update(), gr.update()
+        return None, gr.update(value="오류: 항목을 찾을 수 없습니다."), gr.update(visible=False)
     selected_item = items[evt.index]
     details_list = []
-    exclude_cols = ["id", "contentid", "contenttypeid", "lDongRegnCd", "lDongSignguCd", "lclsSystm1", "lclsSystm2", "lclsSystm3", "mlevel", "cpyrhtDivCd", "areacode", "cat1", "cat2", "cat3", "createdtime", "mapx", "mapy", "modifiedtime", "sigungucode", "ranking_score", "time_score", "sentiment_score", "quarterly_trend_score", "yearly_trend_score", "sub_points"]
+    exclude_cols = ["id", "contentid", "contenttypeid", "lDongRegnCd", "lDongSignguCd", "lclsSystm1", "lclsSystm2", "lclsSystm3", "mlevel", "cpyrhtDivCd", "areacode", "cat1", "cat2", "cat3", "createdtime", "mapx", "mapy", "modifiedtime", "sigungucode", "ranking_score", "time_score", "sentiment_score", "quarterly_trend_score", "yearly_trend_score", "sub_points", "trend_reason", "sentiment_reason"]
     for key, value in selected_item.items():
         if key not in exclude_cols and value is not None and str(value).strip() != "":
             display_key = COLUMN_TRANSLATIONS.get(key, key)
@@ -304,7 +307,7 @@ def update_selection_and_details(evt: gr.SelectData, items: list):
             overview_list_str = [f"{i+1}. {desc}" for i, desc in enumerate(all_overviews)]
             details_list.append(f"**세부 코스개요**:\n" + "\n".join(overview_list_str))
     details_text = "\n\n".join(details_list)
-    return selected_item, selected_item, selected_item.get("title"), gr.update(value=details_text)
+    return selected_item, gr.update(value=details_text), gr.update(visible=True, open=True)
 
 def add_to_my_course(item_to_add, current_course: list):
     if item_to_add and not any(c['title'] == item_to_add.get('title') for c in current_course):

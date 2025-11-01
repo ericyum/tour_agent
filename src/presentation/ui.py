@@ -190,7 +190,8 @@ def create_ui():
 
         festival_gallery.select(fn=event_handlers.display_festival_details_and_precautions, inputs=[results_state, page_display], outputs=[
             festival_details_output, selected_festival_state, selected_festival_details_state, precautions_output,
-            naver_review_accordion, trend_accordion, wordcloud_accordion, sentiment_accordion, recommend_accordion, image_gallery_accordion
+            naver_review_accordion, trend_accordion, wordcloud_accordion, sentiment_accordion, recommend_accordion, image_gallery_accordion,
+            temp_selection_state, details_accordion
         ])
 
         image_collect_button.click(fn=event_handlers.handle_scrape_images, inputs=[selected_festival_state, num_blogs_for_images], outputs=[image_gallery, image_gallery_accordion, scraped_urls_output])
@@ -211,6 +212,11 @@ def create_ui():
         rank_facilities_btn.click(fn=functools.partial(event_handlers.handle_rank_places, is_course=False), inputs=[recommended_facilities_state, ranking_reviews_slider, ranking_top_n_slider], outputs=[recommended_facilities_state, recommend_status, recommend_facilities_gallery, facility_ranking_report])
         rank_courses_btn.click(fn=functools.partial(event_handlers.handle_rank_places, is_course=True), inputs=[recommended_courses_state, ranking_reviews_slider, ranking_top_n_slider], outputs=[recommended_courses_state, recommend_status, recommend_courses_gallery, course_ranking_report])
         rank_festivals_rec_btn.click(fn=event_handlers.handle_rank_festivals, inputs=[recommended_festivals_state, ranking_reviews_slider, ranking_top_n_slider], outputs=[recommended_festivals_state, recommend_festivals_gallery, festival_ranking_rec_report])
+
+        # Handlers for selecting items from recommendation galleries
+        recommend_facilities_gallery.select(fn=event_handlers.handle_item_selection, inputs=[recommended_facilities_state], outputs=[temp_selection_state, recommend_details_output, recommend_details_accordion])
+        recommend_courses_gallery.select(fn=event_handlers.handle_item_selection, inputs=[recommended_courses_state], outputs=[temp_selection_state, recommend_details_output, recommend_details_accordion])
+        recommend_festivals_gallery.select(fn=event_handlers.handle_item_selection, inputs=[recommended_festivals_state], outputs=[temp_selection_state, recommend_details_output, recommend_details_accordion])
 
         add_to_my_course_btn.click(fn=event_handlers.add_to_my_course, inputs=[temp_selection_state, my_course_state], outputs=[my_course_state, my_course_output])
         clear_my_course_btn.click(fn=event_handlers.clear_my_course, inputs=[], outputs=[my_course_state, my_course_output])

@@ -147,8 +147,15 @@ class AnalysisUseCase:
             path = os.path.join(self.script_dir, "assets", "themes", f"{icon_name}.png")
             if os.path.exists(path):
                 try:
-                    icon_image = Image.open(path).convert("L")
-                    mask_array = np.array(icon_image)
+                    img = Image.open(path)
+                    # 투명 배경이 있는 PNG의 경우, 흰색 배경으로 변환
+                    if 'A' in img.getbands():
+                        background = Image.new("RGB", img.size, (255, 255, 255))
+                        background.paste(img, (0, 0), img) # 알파 채널을 마스크로 사용
+                        mask_array = np.array(background)
+                    else:
+                        # 알파 채널이 없는 이미지는 기존 방식대로 처리
+                        mask_array = np.array(img.convert('L'))
                 except Exception as e:
                     print(f"Error loading mask image: {e}")
 
