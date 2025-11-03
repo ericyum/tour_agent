@@ -117,37 +117,56 @@
 
 ```mermaid
 graph TD
-    A[Main Supervisor] --> B(DB Search Supervisor)
-    A --> C(Naver Review Supervisor)
+    %% --- 스타일 정의 ---
+    style MainController fill:#FFDAB9,stroke:#F08A24,stroke-width:3px,stroke-dasharray: 5 5
+    style Supervisor fill:#E8DAEF,stroke:#8E44AD,stroke-width:2px
+    style UseCaseAgent fill:#D5F5E3,stroke:#28B463,stroke-width:2px
+    style Node fill:#D6E6FF,stroke:#005AAB,stroke-width:1px
+    style Tool fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px,stroke-dasharray: 5 5
 
-    B --> B1(DB Search Agent)
+    %% --- 1. 메인 컨트롤러 (A) ---
+    MainController("[Main Controller / Router]\nevent_handlers.py")
 
-    C --> C1(Review Summary Agent)
-    C --> C2(Search Volume Trend Agent)
-    C --> C3(Word Cloud Agent)
-    C --> C4(Sentiment Analysis Agent)
+    %% --- 2. 하위 작업자들 (B, C, D...) ---
+    MainController -- "run_search_and_display()" --> Supervisor_DB["(Supervisor)\ndb_search_graph\n(db_search_supervisor.py)"]
+    MainController -- "handle_validate_course()" --> Supervisor_Validate["(Supervisor)\ncourse_validation_graph\n(course_validation_supervisor.py)"]
+    MainController -- "handle_rank_festivals()" --> Agent_Rank["(Agent)\nRankingUseCase\n(ranking_use_case.py)"]
+    MainController -- "handle_analyze_sentiment()" --> Agent_Sentiment["(Agent)\nSentimentAnalysisUseCase\n(sentiment_analysis_use_case.py)"]
+    MainController -- "handle_generate_word_cloud()" --> Agent_Analysis["(Agent)\nAnalysisUseCase\n(analysis_use_case.py)"]
 
-    C1 --> D1[External: Naver Blog Scraper]
-    C2 --> D2[External: Naver DataLab API]
-    C3 --> D3[External: WordCloud Library]
-    C4 --> D4[External: LLM Client]
-    C4 --> D5[External: Dynamic Scorer]
-    C4 --> D6[External: Reporting Charts/WordClouds]
+    %% --- 3. Supervisor 내부 노드 (C1, C2...) ---
+    
+    subgraph "db_search_graph"
+        Supervisor_DB --> Node_DB_Search["[Node]\nagent_festival_search"]
+        Supervisor_DB --> Node_DB_Nearby["[Node]\nagent_nearby_search"]
+    end
 
-    style A fill:#f9f,stroke:#333,stroke-width:2px
-    style B fill:#bbf,stroke:#333,stroke-width:2px
-    style C fill:#bbf,stroke:#333,stroke-width:2px
-    style B1 fill:#ccf,stroke:#333,stroke-width:1px
-    style C1 fill:#ccf,stroke:#333,stroke-width:1px
-    style C2 fill:#ccf,stroke:#333,stroke-width:1px
-    style C3 fill:#ccf,stroke:#333,stroke-width:1px
-    style C4 fill:#ccf,stroke:#333,stroke-width:1px
-    style D1 fill:#eee,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
-    style D2 fill:#eee,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
-    style D3 fill:#eee,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
-    style D4 fill:#eee,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
-    style D5 fill:#eee,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
-    style D6 fill:#eee,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5
+    subgraph "course_validation_graph"
+        Supervisor_Validate --> Node_Validate["[Node]\nagent_validate_course"]
+    end
+
+    %% --- 4. Agent가 사용하는 도구 (D1, D2...) ---
+
+    %% 랭킹 에이전트의 도구
+    Agent_Rank --> Tool_Scraper["[Tool]\nNaverReviewSupervisor\n(Scraper)"]
+    Agent_Rank --> Tool_Graph_LLM["[Sub-Graph Tool]\napp_llm_graph\n(graph.py)"]
+    Agent_Rank --> Tool_NaverAPI["[Tool]\nNaver DataLab API"]
+
+    %% 감성 분석 에이전트의 도구
+    Agent_Sentiment --> Tool_Scraper
+    Agent_Sentiment --> Tool_Graph_LLM
+    Agent_Sentiment --> Tool_Charts["[Tool]\ncharts.py"]
+    Agent_Sentiment --> Tool_WordClouds["[Tool]\nwordclouds.py"]
+    
+    %% 분석 에이전트의 도구
+    Agent_Analysis --> Tool_Scraper
+    Agent_Analysis --> Tool_NaverAPI
+
+    %% 노드들의 공용 도구
+    Node_DB_Search --> Tool_DB["[Tool]\ntour.db"]
+    Node_DB_Nearby --> Tool_DB
+    Node_Validate --> Tool_LLM["[Tool]\nLLM Client"]
+    Tool_Graph_LLM --> Tool_LLM
 ```
 
 ## 시작하기

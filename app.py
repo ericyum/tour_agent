@@ -3,6 +3,7 @@ import gradio as gr
 # --- Environment and Initial Setup ---
 # This must be the first import to set up environment variables
 from src.infrastructure.config.settings import setup_environment
+
 setup_environment()
 
 # Import the database initializer
@@ -10,6 +11,7 @@ from src.infrastructure.persistence.database import init_db
 
 # Import the UI creator from the presentation layer
 from src.presentation.ui import create_ui
+
 
 def main():
     """
@@ -25,6 +27,7 @@ def main():
     # Launch the application
     # The allowed_paths are necessary for Gradio to serve local images from these directories
     demo.launch(allowed_paths=["assets", "temp_img", "best_images_and_icons"])
+
 
 if __name__ == "__main__":
     main()
