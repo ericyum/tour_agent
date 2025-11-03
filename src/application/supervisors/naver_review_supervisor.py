@@ -21,6 +21,7 @@ class NaverReviewSupervisor:
         start_index = 1
         max_results_to_scan = 100  # Scan up to 100 results
         display_count = 20 # Fetch 20 at a time
+        should_stop_fetching = False # Flag to stop outer loop
 
         while len(reviews_with_content) < num_reviews and start_index < max_results_to_scan:
             blog_results_meta = search_naver_blog(search_query, display=display_count, start=start_index)
@@ -34,7 +35,8 @@ class NaverReviewSupervisor:
                 
                 if consecutive_skips >= 3:
                     print(f"DEBUG: Skipped 3 consecutive blogs. Proceeding with {len(reviews_with_content)} reviews.")
-                    break
+                    should_stop_fetching = True # Set flag
+                    break # Break from inner for loop
 
                 link = review_meta.get("link")
                 if link and "blog.naver.com" in link:
@@ -54,8 +56,10 @@ class NaverReviewSupervisor:
                 else:
                     consecutive_skips += 1
             
-            if consecutive_skips >= 3:
+            if should_stop_fetching: # Check flag to break outer while loop
                 break
+
+            start_index += display_count
 
             start_index += display_count
 
