@@ -7,6 +7,7 @@ import re
 import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
+import base64  # <--- [수정 1] base64 모듈 추가
 
 # --- Custom Module Imports (기존과 동일) ---
 from src.infrastructure.config.loader import (
@@ -249,7 +250,7 @@ def run_search_and_display(area, sigungu, main_cat, medium_cat, small_cat, statu
 async def display_festival_details_and_precautions(
     evt: gr.SelectData, results, page_str
 ):
-    """ (기존 핸들러 - 수정 없음) """
+    """ (*** 수정됨 ***) """
     page = int(page_str.split("/")[0].strip())
     global_index = (page - 1) * PAGE_SIZE + evt.index
     if global_index >= len(results) or global_index < 0:
@@ -268,10 +269,36 @@ async def display_festival_details_and_precautions(
         return
     
     details_list = []
-    local_icon = get_local_icon_path(original_title)
-    if local_icon:
-        gradio_served_path = f"/file={Path(local_icon).as_posix()}"
-        details_list.append(f'<img src="{gradio_served_path}" width="200">')
+    
+    # [*** 수정된 로직 ***]
+    # 1. get_local_icon_path는 'C:\project\best_images_and_icons\icons\icon.png' 같은 *절대 경로*를 반환
+    local_icon_abs_path = get_local_icon_path(original_title)
+    
+    if local_icon_abs_path:
+        try:
+            # 2. 이미지 파일을 읽어서 base64로 인코딩
+            with open(local_icon_abs_path, "rb") as image_file:
+                encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+            
+            # 3. 파일 확장자에 따라 올바른 Mime type 결정
+            mime_type = "image/png" # 기본값
+            if local_icon_abs_path.lower().endswith((".jpg", ".jpeg")):
+                mime_type = "image/jpeg"
+            elif local_icon_abs_path.lower().endswith(".gif"):
+                mime_type = "image/gif"
+            
+            # 4. Base64 데이터를 src에 직접 삽입하는 HTML 태그 생성
+            details_list.append(f'<img src="data:{mime_type};base64,{encoded_string}" width="200">')
+            
+        except Exception as e:
+            # 파일 읽기 또는 인코딩 실패 시
+            print(f"Error base64 encoding icon: {e}")
+            pass # 아이콘 없이 진행
+            
+    # [기존 경로 로직 삭제]
+    # if local_icon:
+    #     gradio_served_path = f"/file={Path(local_icon).as_posix()}"
+    #     details_list.append(f'<img src="{gradio_served_path}" width="200">')
     
     score_keys = {
         "ranking_score": "종합 순위 점수", "time_score": "시기성 점수",
