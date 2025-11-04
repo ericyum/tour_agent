@@ -813,7 +813,7 @@ def create_ui():
         # '내 코스에 추가' 버튼 (2곳)
         add_to_my_course_btn_details.click( # 1. 상세 페이지
             fn=event_handlers.add_to_my_course,
-            inputs=[temp_selection_state, my_course_state],
+            inputs=[selected_festival_details_state, my_course_state], # <--- 'selected_festival_details_state'로 변경
             outputs=[my_course_state, my_course_output],
         )
         add_to_my_course_btn_reco.click( # 2. 추천 탭
