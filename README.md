@@ -88,78 +88,36 @@ FestMoment는 축제 검색부터 감성 분석, AI 이미지 생성까지 올�
 ```mermaid
 graph TD
     %% --- 스타일 정의 ---
-    style MainController fill:#FFDAB9,stroke:#F08A24,stroke-width:3px,stroke-dasharray: 5 5
+    style EventHandler fill:#FFDAB9,stroke:#F08A24,stroke-width:2px
     style Supervisor fill:#E8DAEF,stroke:#8E44AD,stroke-width:2px
-    style UseCaseAgent fill:#D5F5E3,stroke:#28B463,stroke-width:2px
-    style Node fill:#D6E6FF,stroke:#005AAB,stroke-width:1px
-    style Tool fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px,stroke-dasharray: 5 5
+    style AgentUseCase fill:#D5F5E3,stroke:#28B463,stroke-width:2px
+    style AgentNode fill:#D6E6FF,stroke:#005AAB,stroke-width:2px
+    style Tools fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px,stroke-dasharray: 5 5
 
-    %% --- 1. 메인 컨트롤러 (A) ---
-    MainController("[Main Controller / Router]
-event_handlers.py")
+    %% --- 1. Event Handler (최상위) ---
+    EventHandler("UI Event Handlers\n(event_handlers.py)")
 
-    %% --- 2. 하위 작업자들 (B, C, D...) ---
-    MainController -- "run_search_and_display()" --> Supervisor_DB["(Supervisor)
-db_search_graph
-(db_search_supervisor.py)"]
-    MainController -- "handle_validate_course()" --> Supervisor_Validate["(Supervisor)
-course_validation_graph
-(course_validation_supervisor.py)"]
-    MainController -- "handle_rank_festivals()" --> Agent_Rank["(Agent)
-RankingUseCase
-(ranking_use_case.py)"]
-    MainController -- "handle_analyze_sentiment()" --> Agent_Sentiment["(Agent)
-SentimentAnalysisUseCase
-(sentiment_analysis_use_case.py)"]
-    MainController -- "handle_generate_word_cloud()" --> Agent_Analysis["(Agent)
-AnalysisUseCase
-(analysis_use_case.py)"]
+    %% --- 2. Supervisors & Agents (중간 계층) ---
+    EventHandler -- triggers --> Supervisor_DB["Supervisor\ndb_search_graph"]
+    EventHandler -- triggers --> Supervisor_Validate["Supervisor\ncourse_validation_graph"]
+    EventHandler -- triggers --> Agent_Rank["Agent\nRankingUseCase"]
+    EventHandler -- triggers --> Agent_Sentiment["Agent\nSentimentAnalysisUseCase"]
+    EventHandler -- triggers --> Agent_Render["Agent\nRenderingUseCase"]
+    EventHandler -- triggers --> Agent_Analysis["Agent\nAnalysisUseCase"]
 
-    %% --- 3. Supervisor 내부 노드 (C1, C2...) ---
-    
-    subgraph "db_search_graph"
-        Supervisor_DB --> Node_DB_Search["[Node]
-agent_festival_search"]
-        Supervisor_DB --> Node_DB_Nearby["[Node]
-agent_nearby_search"]
+    %% --- 3. Agent Nodes & Tools (하위 계층) ---
+    subgraph "Supervisors Delegate to Agent Nodes"
+        Supervisor_DB --> Node_FestivalSearch["Agent Node\n(agent_festival_search)"]
+        Supervisor_DB --> Node_NearbySearch["Agent Node\n(agent_nearby_search)"]
+        Supervisor_Validate --> Node_ValidateCourse["Agent Node\n(agent_validate_course)"]
     end
 
-    subgraph "course_validation_graph"
-        Supervisor_Validate --> Node_Validate["[Node]
-agent_validate_course"]
+    subgraph "Agents Use Tools & Sub-Graphs"
+        Agent_Rank --> Tools_Rank["Tools\n(Scraper, LLM Graph, API)"]
+        Agent_Sentiment --> Tools_Sentiment["Tools\n(Scraper, LLM Graph, Charts)"]
+        Agent_Render --> Tools_Render["Tools\n(Gemini Vision, Maps API)"]
+        Agent_Analysis --> Tools_Analysis["Tools\n(Scraper, API)"]
     end
-
-    %% --- 4. Agent가 사용하는 도구 (D1, D2...) ---
-
-    %% 랭킹 에이전트의 도구
-    Agent_Rank --> Tool_Scraper["[Tool]
-NaverReviewSupervisor
-(Scraper)"]
-    Agent_Rank --> Tool_Graph_LLM["[Sub-Graph Tool]
-app_llm_graph
-(graph.py)"]
-    Agent_Rank --> Tool_NaverAPI["[Tool]
-Naver DataLab API"]
-
-    %% 감성 분석 에이전트의 도구
-    Agent_Sentiment --> Tool_Scraper
-    Agent_Sentiment --> Tool_Graph_LLM
-    Agent_Sentiment --> Tool_Charts["[Tool]
-charts.py"]
-    Agent_Sentiment --> Tool_WordClouds["[Tool]
-wordclouds.py"]
-    
-    %% 분석 에이전트의 도구
-    Agent_Analysis --> Tool_Scraper
-    Agent_Analysis --> Tool_NaverAPI
-
-    %% 노드들의 공용 도구
-    Node_DB_Search --> Tool_DB["[Tool]
-tour.db"]
-    Node_DB_Nearby --> Tool_DB
-    Node_Validate --> Tool_LLM["[Tool]
-LLM Client"]
-    Tool_Graph_LLM --> Tool_LLM
 ```
 
 ---
