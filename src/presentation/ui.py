@@ -33,7 +33,7 @@ def create_ui():
         # Details
         selected_festival_state = gr.State()
         selected_festival_details_state = gr.State()
-        temp_selection_state = gr.State() # '내 코스' 추가용 임시 상태
+        temp_selection_state = gr.State()  # '내 코스' 추가용 임시 상태
 
         # Recommendations
         recommended_facilities_state = gr.State([])
@@ -69,7 +69,7 @@ def create_ui():
                     **시작하려면 '검색' 탭을 눌러주세요.**
                     """
                 )
-            
+
             with gr.TabItem("🔍 검색", id="search"):
                 gr.Markdown("## 🔍 축제 검색")
                 # --- (기존 검색 필터 UI) ---
@@ -90,7 +90,8 @@ def create_ui():
                     with gr.Row():
                         main_cat_dropdown = gr.Dropdown(
                             label="대분류",
-                            choices=["전체"] + sorted(list(ALL_FESTIVAL_CATEGORIES.keys())),
+                            choices=["전체"]
+                            + sorted(list(ALL_FESTIVAL_CATEGORIES.keys())),
                             value="전체",
                             interactive=True,
                         )
@@ -145,11 +146,11 @@ def create_ui():
                                         scale=1,
                                     )
                                 festival_ranking_report = gr.Markdown(visible=False)
-                            
+
                             with gr.TabItem("선택하여 순위 매기기 (Q1)"):
                                 selected_festivals_checkbox = gr.CheckboxGroup(
                                     label="순위 매길 축제 선택 (현재 페이지만 표시됩니다)",
-                                    choices=[]
+                                    choices=[],
                                 )
                                 with gr.Row():
                                     rank_selected_btn = gr.Button(
@@ -174,7 +175,6 @@ def create_ui():
                                         scale=1,
                                     )
                                 festival_ranking_report_sel = gr.Markdown(visible=False)
-
 
                     gr.Markdown("### 🖼️ 축제 목록 (클릭하여 상세 정보 보기)")
                     festival_gallery = gr.Gallery(
@@ -209,18 +209,20 @@ def create_ui():
             with gr.TabItem("✨ 상세 정보", id="details"):
                 # [*** 수정됨 ***] Q2: 뒤로가기 버튼
                 back_to_search_btn = gr.Button("◀ 검색 목록으로 돌아가기")
-                
+
                 gr.Markdown("## ✨ 축제 상세 정보")
                 festival_details_output = gr.Markdown()
                 precautions_output = gr.Markdown(
                     label="AI 기반 에티켓 가이드", visible=False
                 )
-                add_to_my_course_btn_details = gr.Button("🗺️ 이 축제를 내 코스에 추가", variant="primary")
-                
+                add_to_my_course_btn_details = gr.Button(
+                    "🗺️ 이 축제를 내 코스에 추가", variant="primary"
+                )
+
                 gr.Markdown("--- \n ## 💡 AI 추가 분석 (원하는 탭 클릭)")
-                
+
                 with gr.Tabs(elem_id="detail_tabs") as detail_tabs_container:
-                    
+
                     # --- Detail Tab 1: Image Gallery ---
                     with gr.TabItem(label="📸 이미지", id="image") as image_tab:
                         with gr.Row():
@@ -240,18 +242,24 @@ def create_ui():
                             height="auto",
                             object_fit="contain",
                         )
-                        scraped_urls_output = gr.Textbox(label="Scraped Image URLs", visible=False)
+                        scraped_urls_output = gr.Textbox(
+                            label="Scraped Image URLs", visible=False
+                        )
 
                     # --- Detail Tab 2: Trend Graph ---
                     with gr.TabItem(label="📈 트렌드", id="trend") as trend_tab:
-                        trend_graph_btn = gr.Button("트렌드 그래프 생성", variant="primary")
+                        trend_graph_btn = gr.Button(
+                            "트렌드 그래프 생성", variant="primary"
+                        )
                         trend_status = gr.Textbox(label="상태", interactive=False)
                         with gr.Row():
                             trend_plot_yearly = gr.Image(label="최근 1년 검색량 트렌드")
                             trend_plot_event = gr.Image(label="축제 기간 중심 트렌드")
 
                     # --- Detail Tab 3: Word Cloud ---
-                    with gr.TabItem(label="☁️ 워드클라우드", id="wordcloud") as wordcloud_tab:
+                    with gr.TabItem(
+                        label="☁️ 워드클라우드", id="wordcloud"
+                    ) as wordcloud_tab:
                         with gr.Row():
                             num_reviews_wordcloud = gr.Slider(
                                 minimum=1,
@@ -266,9 +274,11 @@ def create_ui():
                             )
                         wordcloud_status = gr.Textbox(label="상태", interactive=False)
                         wordcloud_plot = gr.Image(label="축제의 주요 핵심 요소들")
-                    
+
                     # --- Detail Tab 4: Sentiment Analysis ---
-                    with gr.TabItem(label="❤️ 감성 분석", id="sentiment") as sentiment_tab:
+                    with gr.TabItem(
+                        label="❤️ 감성 분석", id="sentiment"
+                    ) as sentiment_tab:
                         with gr.Row():
                             num_reviews_slider = gr.Slider(
                                 minimum=1,
@@ -281,10 +291,14 @@ def create_ui():
                             run_sentiment_btn = gr.Button(
                                 "감성 분석 실행", variant="primary"
                             )
-                        sentiment_status = gr.Textbox(label="분석 상태", interactive=False)
+                        sentiment_status = gr.Textbox(
+                            label="분석 상태", interactive=False
+                        )
                         # (기존 감성 분석 Accordion 내용들)
                         with gr.Accordion("종합 분석 결과", open=True):
-                            sentiment_summary = gr.Markdown(label="종합 분석 상세", visible=False)
+                            sentiment_summary = gr.Markdown(
+                                label="종합 분석 상세", visible=False
+                            )
                             sentiment_overall_csv = gr.File(
                                 label="종합 분석 (CSV) 다운로드", visible=False
                             )
@@ -296,7 +310,9 @@ def create_ui():
                                 sentiment_distribution_chart = gr.Image(
                                     label="만족도 점수 분포", visible=False, scale=1
                                 )
-                            sentiment_distribution_description = gr.Markdown(visible=False)
+                            sentiment_distribution_description = gr.Markdown(
+                                visible=False
+                            )
                             with gr.Row():
                                 outlier_chart = gr.Image(
                                     label="이상치 탐지 결과", visible=False, scale=1
@@ -311,65 +327,105 @@ def create_ui():
                                         label="봄 시즌", visible=False, scale=1
                                     )
                                     sentiment_spring_pos_wc = gr.Image(
-                                        label="봄 긍정 워드클라우드", visible=False, scale=1
+                                        label="봄 긍정 워드클라우드",
+                                        visible=False,
+                                        scale=1,
                                     )
                                     sentiment_spring_neg_wc = gr.Image(
-                                        label="봄 부정 워드클라우드", visible=False, scale=1
+                                        label="봄 부정 워드클라우드",
+                                        visible=False,
+                                        scale=1,
                                     )
                                 with gr.Row():
                                     sentiment_summer_chart = gr.Plot(
                                         label="여름 시즌", visible=False, scale=1
                                     )
                                     sentiment_summer_pos_wc = gr.Image(
-                                        label="여름 긍정 워드클라우드", visible=False, scale=1
+                                        label="여름 긍정 워드클라우드",
+                                        visible=False,
+                                        scale=1,
                                     )
                                     sentiment_summer_neg_wc = gr.Image(
-                                        label="여름 부정 워드클라우드", visible=False, scale=1
+                                        label="여름 부정 워드클라우드",
+                                        visible=False,
+                                        scale=1,
                                     )
                                 with gr.Row():
                                     sentiment_autumn_chart = gr.Plot(
                                         label="가을 시즌", visible=False, scale=1
                                     )
                                     sentiment_autumn_pos_wc = gr.Image(
-                                        label="가을 긍정 워드클라우드", visible=False, scale=1
+                                        label="가을 긍정 워드클라우드",
+                                        visible=False,
+                                        scale=1,
                                     )
                                     sentiment_autumn_neg_wc = gr.Image(
-                                        label="가을 부정 워드클라우드", visible=False, scale=1
+                                        label="가을 부정 워드클라우드",
+                                        visible=False,
+                                        scale=1,
                                     )
                                 with gr.Row():
                                     sentiment_winter_chart = gr.Plot(
                                         label="겨울 시즌", visible=False, scale=1
                                     )
                                     sentiment_winter_pos_wc = gr.Image(
-                                        label="겨울 긍정 워드클라우드", visible=False, scale=1
+                                        label="겨울 긍정 워드클라우드",
+                                        visible=False,
+                                        scale=1,
                                     )
                                     sentiment_winter_neg_wc = gr.Image(
-                                        label="겨울 부정 워드클라우드", visible=False, scale=1
+                                        label="겨울 부정 워드클라우드",
+                                        visible=False,
+                                        scale=1,
                                     )
                         gr.Markdown("### 개별 블로그 분석 결과")
                         sentiment_df_output = gr.DataFrame(
                             headers=[
-                                "블로그 제목", "링크", "감성 빈도", "감성 점수", "긍정 문장 수",
-                                "부정 문장 수", "긍정 비율 (%)", "부정 비율 (%)", "긍/부정 문장 요약",
+                                "블로그 제목",
+                                "링크",
+                                "감성 빈도",
+                                "감성 점수",
+                                "긍정 문장 수",
+                                "부정 문장 수",
+                                "긍정 비율 (%)",
+                                "부정 비율 (%)",
+                                "긍/부정 문장 요약",
                             ],
                             datatype=[
-                                "str", "str", "number", "str", "number",
-                                "number", "str", "str", "str",
+                                "str",
+                                "str",
+                                "number",
+                                "str",
+                                "number",
+                                "number",
+                                "str",
+                                "str",
+                                "str",
                             ],
-                            label="개별 블로그 분석 결과", wrap=True, interactive=True,
+                            label="개별 블로그 분석 결과",
+                            wrap=True,
+                            interactive=True,
                         )
                         with gr.Row():
                             sentiment_blog_page_num_input = gr.Number(
                                 value=1, label="페이지 번호", interactive=True, scale=1
                             )
                             sentiment_blog_total_pages_output = gr.Textbox(
-                                value="/ 1", label="전체 페이지", interactive=False, container=False, scale=1
+                                value="/ 1",
+                                label="전체 페이지",
+                                interactive=False,
+                                container=False,
+                                scale=1,
                             )
                             sentiment_blog_list_csv = gr.File(
-                                label="전체 블로그 목록(CSV) 다운로드", visible=False, scale=2
+                                label="전체 블로그 목록(CSV) 다운로드",
+                                visible=False,
+                                scale=2,
                             )
                         with gr.Accordion(
-                            "개별 블로그 상세 분석 (표에서 행 선택)", open=False, visible=False
+                            "개별 블로그 상세 분석 (표에서 행 선택)",
+                            open=False,
+                            visible=False,
                         ) as sentiment_blog_detail_accordion:
                             sentiment_individual_summary = gr.Markdown(
                                 label="긍/부정 문장 요약", visible=False
@@ -381,9 +437,11 @@ def create_ui():
                                 sentiment_individual_score_chart = gr.Plot(
                                     label="문장별 감성 점수", visible=False
                                 )
-                    
+
                     # --- Detail Tab 5: Naver Review ---
-                    with gr.TabItem(label="📝 후기 요약", id="naver_review") as naver_review_tab:
+                    with gr.TabItem(
+                        label="📝 후기 요약", id="naver_review"
+                    ) as naver_review_tab:
                         with gr.Row():
                             num_reviews_naver_summary = gr.Slider(
                                 minimum=1,
@@ -397,9 +455,11 @@ def create_ui():
                                 "네이버 후기 요약 검색", variant="primary"
                             )
                         naver_review_output = gr.Markdown()
-                    
+
                     # --- Detail Tab 6: Recommendation ---
-                    with gr.TabItem(label="📍 주변 추천", id="recommend") as recommend_tab:
+                    with gr.TabItem(
+                        label="📍 주변 추천", id="recommend"
+                    ) as recommend_tab:
                         with gr.Row():
                             recommend_radius_slider = gr.Slider(
                                 minimum=100,
@@ -410,45 +470,62 @@ def create_ui():
                                 interactive=True,
                             )
                             recommend_btn = gr.Button("추천 받기", variant="primary")
-                        
+
                         with gr.Row(visible=False) as ranking_controls:
                             ranking_reviews_slider = gr.Slider(
-                                minimum=1, maximum=10, value=5, step=1,
-                                label="순위용 리뷰 수", interactive=True,
+                                minimum=1,
+                                maximum=10,
+                                value=5,
+                                step=1,
+                                label="순위용 리뷰 수",
+                                interactive=True,
                             )
                             ranking_top_n_slider = gr.Slider(
-                                minimum=1, maximum=5, value=3, step=1,
-                                label="표시할 순위 수", interactive=True,
+                                minimum=1,
+                                maximum=5,
+                                value=3,
+                                step=1,
+                                label="표시할 순위 수",
+                                interactive=True,
                             )
                             rank_facilities_btn = gr.Button("관광 시설 순위 매기기")
                             rank_courses_btn = gr.Button("관광 코스 순위 매기기")
                             rank_festivals_rec_btn = gr.Button("추천 축제 순위 매기기")
-                        
+
                         recommend_status = gr.Textbox(
                             label="상태", interactive=False, visible=False
                         )
-                        
+
                         gr.Markdown("### 추천 관광 시설")
                         recommend_facilities_gallery = gr.Gallery(
-                            label="추천 관광 시설", show_label=False,
+                            label="추천 관광 시설",
+                            show_label=False,
                             elem_id="recommend_facilities_gallery",
-                            columns=4, height="auto", object_fit="contain",
+                            columns=4,
+                            height="auto",
+                            object_fit="contain",
                         )
                         facility_ranking_report = gr.Markdown(visible=False)
-                        
+
                         gr.Markdown("### 추천 관광 코스")
                         recommend_courses_gallery = gr.Gallery(
-                            label="추천 관광 코스", show_label=False,
+                            label="추천 관광 코스",
+                            show_label=False,
                             elem_id="recommend_courses_gallery",
-                            columns=4, height="auto", object_fit="contain",
+                            columns=4,
+                            height="auto",
+                            object_fit="contain",
                         )
                         course_ranking_report = gr.Markdown(visible=False)
-                        
+
                         gr.Markdown("### 추천 축제")
                         recommend_festivals_gallery = gr.Gallery(
-                            label="추천 축제", show_label=False,
+                            label="추천 축제",
+                            show_label=False,
                             elem_id="recommend_festivals_gallery",
-                            columns=4, height="auto", object_fit="contain",
+                            columns=4,
+                            height="auto",
+                            object_fit="contain",
                         )
                         with gr.Row(variant="panel"):
                             rec_first_page_button = gr.Button("<<", size="sm")
@@ -464,24 +541,59 @@ def create_ui():
                                 label="페이지 이동", value=1, interactive=True, scale=1
                             )
                             rec_page_display = gr.Textbox(
-                                value="1 / 1", label="현재 페이지",
-                                interactive=False, container=False, scale=1
+                                value="1 / 1",
+                                label="현재 페이지",
+                                interactive=False,
+                                container=False,
+                                scale=1,
                             )
                         festival_ranking_rec_report = gr.Markdown(visible=False)
-                        
+
                         with gr.Accordion(
-                            "추천 장소 상세 정보 (항목 선택 시 표시)", open=False, visible=False
+                            "추천 장소 상세 정보 (항목 선택 시 표시)",
+                            open=False,
+                            visible=False,
                         ) as recommend_details_accordion:
                             recommend_details_output = gr.Markdown()
                             # '내 코스에 넣기' 버튼 추가 (요청 사항)
-                            add_to_my_course_btn_reco = gr.Button("🗺️ 선택한 추천 장소를 내 코스에 추가")
+                            add_to_my_course_btn_reco = gr.Button(
+                                "🗺️ 선택한 추천 장소를 내 코스에 추가"
+                            )
+
+                    # --- [ 신규 ] 렌더링 탭 ---
+                    with gr.TabItem(
+                        label="🎨 AI 렌더링", id="rendering"
+                    ) as rendering_tab:
+                        gr.Markdown("### 🤖 AI 기반 축제 렌더링")
+                        gr.Markdown(
+                            "AI가 축제 현장의 위성사진을 바탕으로 대표 장면과 다양한 테마의 장면을 렌더링합니다. "
+                            "**실행 시 1~2분 정도 소요될 수 있습니다.** (Gemini API 호출)"
+                        )
+                        rendering_btn = gr.Button("AI 렌더링 실행", variant="primary")
+                        rendering_status = gr.Textbox(
+                            label="상태", interactive=False, visible=False
+                        )
+
+                        with gr.Accordion("1. 대표 렌더링 (대표 계절/시간)", open=True):
+                            representative_rendering_output = gr.Image(
+                                label="대표 렌더링", type="filepath"
+                            )
+
+                        with gr.Accordion("2. 조건별 렌더링 (테마별 장면)", open=True):
+                            conditional_rendering_output = gr.Gallery(
+                                label="조건별 렌더링",
+                                columns=2,
+                                height="auto",
+                                object_fit="contain",
+                            )
+                    # --- [ 신규 ] 탭 추가 끝 ---
 
             with gr.TabItem("🗺️ 내 코스", id="my_course"):
                 gr.Markdown("## 🗺️ 나만의 코스")
                 my_course_output = gr.Markdown("나만의 코스에 항목을 추가해보세요.")
                 with gr.Row():
                     clear_my_course_btn = gr.Button("나만의 코스 비우기")
-                
+
                 gr.Markdown("--- \n ### 📅 코스 현실성 검증")
                 with gr.Row():
                     trip_duration_input = gr.Textbox(
@@ -491,17 +603,18 @@ def create_ui():
                     validate_course_btn = gr.Button("검증하기", variant="primary")
                 course_validation_output = gr.Markdown()
 
-
         # --- [3] Event Handlers Binding ---
 
         # --- (A) Navigation Handlers (페이지 이동) ---
         # [*** 수정됨 ***] '뒤로가기' 버튼 클릭 시 'search' 탭으로 이동
         back_to_search_btn.click(
-            fn=lambda: gr.update(selected="search"),  # 'search' 탭 ID를 선택하도록 gr.update 객체 반환
+            fn=lambda: gr.update(
+                selected="search"
+            ),  # 'search' 탭 ID를 선택하도록 gr.update 객체 반환
             inputs=None,
-            outputs=[top_level_tabs] # top_level_tabs의 selected 값을 업데이트
+            outputs=[top_level_tabs],  # top_level_tabs의 selected 값을 업데이트
         )
-        
+
         # --- (B-2) Search Page Handlers ---
         # (드롭다운 핸들러 - 수정 없음)
         update_sigungu_with_map = functools.partial(
@@ -531,33 +644,60 @@ def create_ui():
 
         # 검색 버튼
         search_btn.click(
-            fn=event_handlers.run_search_and_populate_ranking_cbox, 
+            fn=event_handlers.run_search_and_populate_ranking_cbox,
             inputs=[
-                area_dropdown, sigungu_dropdown, main_cat_dropdown,
-                medium_cat_dropdown, small_cat_dropdown, status_radio,
+                area_dropdown,
+                sigungu_dropdown,
+                main_cat_dropdown,
+                medium_cat_dropdown,
+                small_cat_dropdown,
+                status_radio,
             ],
             outputs=[
-                results_state, festival_gallery, page_display,
-                results_area, total_pages_state,
+                results_state,
+                festival_gallery,
+                page_display,
+                results_area,
+                total_pages_state,
             ]
             + page_buttons
-            + [selected_festivals_checkbox], 
+            + [selected_festivals_checkbox],
         )
-        
-        # [*** 수정됨 ***] 
+
+        # [*** 수정됨 ***]
         # 페이지네이션/랭킹 버튼이 체크박스도 업데이트하도록 수정
         checkbox_output = selected_festivals_checkbox
-        pagination_outputs = [festival_gallery, page_display, *page_buttons, checkbox_output]
-        ranking_outputs = [results_state, festival_gallery, page_display, *page_buttons, 
-                           festival_ranking_report, total_pages_state, checkbox_output]
-        ranking_sel_outputs = [results_state, festival_gallery, page_display, *page_buttons,
-                               festival_ranking_report_sel, total_pages_state, checkbox_output]
+        pagination_outputs = [
+            festival_gallery,
+            page_display,
+            *page_buttons,
+            checkbox_output,
+        ]
+        ranking_outputs = [
+            results_state,
+            festival_gallery,
+            page_display,
+            *page_buttons,
+            festival_ranking_report,
+            total_pages_state,
+            checkbox_output,
+        ]
+        ranking_sel_outputs = [
+            results_state,
+            festival_gallery,
+            page_display,
+            *page_buttons,
+            festival_ranking_report_sel,
+            total_pages_state,
+            checkbox_output,
+        ]
 
         # 전체 랭킹 버튼
         rank_festivals_btn.click(
             fn=event_handlers.handle_rank_festivals,
             inputs=[
-                results_state, num_reviews_festival_ranking,
+                results_state,
+                num_reviews_festival_ranking,
                 festival_ranking_top_n_slider,
             ],
             outputs=ranking_outputs,
@@ -565,9 +705,10 @@ def create_ui():
 
         # 선택 랭킹 버튼
         rank_selected_btn.click(
-            fn=event_handlers.handle_rank_selected_festivals, 
+            fn=event_handlers.handle_rank_selected_festivals,
             inputs=[
-                results_state, selected_festivals_checkbox,
+                results_state,
+                selected_festivals_checkbox,
                 num_reviews_festival_ranking_sel,
                 festival_ranking_top_n_slider_sel,
             ],
@@ -608,20 +749,21 @@ def create_ui():
         )
 
         # --- (B-3) Details Page Handlers ---
-        
+
         # (갤러리 클릭 -> 상세 페이지 이동)
         details_page_basic_outputs = [
             festival_details_output,
             selected_festival_state,
             selected_festival_details_state,
             precautions_output,
-            temp_selection_state, # '내 코스' 추가를 위한 상태
+            temp_selection_state,  # '내 코스' 추가를 위한 상태
         ]
-        
+
         festival_gallery.select(
-            fn=event_handlers.handle_gallery_select_and_show_details, 
+            fn=event_handlers.handle_gallery_select_and_show_details,
             inputs=[results_state, page_display],
-            outputs=details_page_basic_outputs + [top_level_tabs, detail_tabs_container],
+            outputs=details_page_basic_outputs
+            + [top_level_tabs, detail_tabs_container],
         )
 
         # (상세 페이지 각 탭 내부의 기능 버튼 - 기존 바인딩과 동일)
@@ -659,12 +801,18 @@ def create_ui():
                 sentiment_positive_keywords,
                 sentiment_summary,
                 sentiment_overall_csv,
-                sentiment_spring_chart, sentiment_summer_chart,
-                sentiment_autumn_chart, sentiment_winter_chart,
-                sentiment_spring_pos_wc, sentiment_spring_neg_wc,
-                sentiment_summer_pos_wc, sentiment_summer_neg_wc,
-                sentiment_autumn_pos_wc, sentiment_autumn_neg_wc,
-                sentiment_winter_pos_wc, sentiment_winter_neg_wc,
+                sentiment_spring_chart,
+                sentiment_summer_chart,
+                sentiment_autumn_chart,
+                sentiment_winter_chart,
+                sentiment_spring_pos_wc,
+                sentiment_spring_neg_wc,
+                sentiment_summer_pos_wc,
+                sentiment_summer_neg_wc,
+                sentiment_autumn_pos_wc,
+                sentiment_autumn_neg_wc,
+                sentiment_winter_pos_wc,
+                sentiment_winter_neg_wc,
                 sentiment_df_output,
                 blog_results_df_state,
                 blog_judgments_state,
@@ -677,59 +825,76 @@ def create_ui():
                 sentiment_blog_detail_accordion,
             ],
         )
-        
+
         # (추천 탭 기능 - 기존 바인딩과 동일)
         recommend_btn.click(
             fn=event_handlers.run_nearby_search,
             inputs=[selected_festival_details_state, recommend_radius_slider],
             outputs=[
-                recommended_facilities_state, recommended_courses_state,
-                recommended_festivals_state, recommend_status,
-                recommend_facilities_gallery, recommend_courses_gallery,
-                recommend_festivals_gallery, ranking_controls,
+                recommended_facilities_state,
+                recommended_courses_state,
+                recommended_festivals_state,
+                recommend_status,
+                recommend_facilities_gallery,
+                recommend_courses_gallery,
+                recommend_festivals_gallery,
+                ranking_controls,
             ],
         )
         rank_facilities_btn.click(
             fn=functools.partial(event_handlers.handle_rank_places, is_course=False),
             inputs=[
-                recommended_facilities_state, ranking_reviews_slider,
+                recommended_facilities_state,
+                ranking_reviews_slider,
                 ranking_top_n_slider,
             ],
             outputs=[
-                recommended_facilities_state, recommend_status,
-                recommend_facilities_gallery, facility_ranking_report,
+                recommended_facilities_state,
+                recommend_status,
+                recommend_facilities_gallery,
+                facility_ranking_report,
             ],
         )
         rank_courses_btn.click(
             fn=functools.partial(event_handlers.handle_rank_places, is_course=True),
             inputs=[
-                recommended_courses_state, ranking_reviews_slider,
+                recommended_courses_state,
+                ranking_reviews_slider,
                 ranking_top_n_slider,
             ],
             outputs=[
-                recommended_courses_state, recommend_status,
-                recommend_courses_gallery, course_ranking_report,
+                recommended_courses_state,
+                recommend_status,
+                recommend_courses_gallery,
+                course_ranking_report,
             ],
         )
         rank_festivals_rec_btn.click(
             fn=event_handlers.handle_rank_festivals,
             inputs=[
-                recommended_festivals_state, ranking_reviews_slider,
+                recommended_festivals_state,
+                ranking_reviews_slider,
                 ranking_top_n_slider,
             ],
             outputs=[
-                recommended_festivals_state, recommend_festivals_gallery,
+                recommended_festivals_state,
+                recommend_festivals_gallery,
                 rec_page_display,
             ]
             + rec_page_buttons
-            + [festival_ranking_rec_report, recommended_total_pages_state, 
-               gr.State(None)], # [수정] 체크박스 출력을 위한 더미값
+            + [
+                festival_ranking_rec_report,
+                recommended_total_pages_state,
+                gr.State(None),
+            ],  # [수정] 체크박스 출력을 위한 더미값
         )
-        
+
         # (추천 탭 페이지네이션 - [수정] 체크박스 더미값 추가)
         rec_pagination_outputs = [
-            recommend_festivals_gallery, rec_page_display, *rec_page_buttons, 
-            gr.State(None) # 체크박스 출력을 위한 더미값
+            recommend_festivals_gallery,
+            rec_page_display,
+            *rec_page_buttons,
+            gr.State(None),  # 체크박스 출력을 위한 더미값
         ]
         for btn in rec_page_buttons:
             btn.click(
@@ -808,15 +973,30 @@ def create_ui():
             ],
         )
 
+        # --- [ 신규 ] 렌더링 탭 핸들러 ---
+        rendering_btn.click(
+            fn=event_handlers.handle_generate_rendering,
+            inputs=[selected_festival_details_state],  # 현재 선택된 축제 상세 정보
+            outputs=[
+                rendering_status,  # 상태 텍스트박스
+                representative_rendering_output,  # 대표 렌더링 이미지
+                conditional_rendering_output,  # 조건별 렌더링 갤러리
+            ],
+        )
+        # --- [ 신규 핸들러 추가 끝 ] ---
+
         # --- (B-4) My Course Page Handlers ---
-        
+
         # '내 코스에 추가' 버튼 (2곳)
-        add_to_my_course_btn_details.click( # 1. 상세 페이지
+        add_to_my_course_btn_details.click(  # 1. 상세 페이지
             fn=event_handlers.add_to_my_course,
-            inputs=[selected_festival_details_state, my_course_state], # <--- 'selected_festival_details_state'로 변경
+            inputs=[
+                selected_festival_details_state,
+                my_course_state,
+            ],  # <--- 'selected_festival_details_state'로 변경
             outputs=[my_course_state, my_course_output],
         )
-        add_to_my_course_btn_reco.click( # 2. 추천 탭
+        add_to_my_course_btn_reco.click(  # 2. 추천 탭
             fn=event_handlers.add_to_my_course,
             inputs=[temp_selection_state, my_course_state],
             outputs=[my_course_state, my_course_output],

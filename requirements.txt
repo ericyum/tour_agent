@@ -17,3 +17,5 @@ Pillow==11.3.0
 wordcloud==1.9.4
 geopy==2.4.1
 nest_asyncio==1.6.0
+google-generativeai
+rembg
