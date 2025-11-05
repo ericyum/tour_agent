@@ -157,6 +157,59 @@ graph TD
     style T5 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
     style T6 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
     style T7 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
+```  
+  
+```  
+graph TD
+    %% --- 1. Input Layer ---
+    A(🟩 Gradio UI 이벤트) -- "검색, 랭킹, 상세 탭 클릭 등" --> B[event_handlers.py<br>(UI 이벤트 핸들러)];
+
+    %% --- 2. Supervisor (Use Case) Layer ---
+    B -- "검색/랭킹 요청" --> C(🟦 DB/Ranking Supervisor<br>RankingUseCase.py);
+    B -- "감성분석/트렌드 요청" --> D(🟦 Sentiment/Analysis Supervisor<br>SentimentAnalysisUseCase.py);
+    B -- "AI렌더링/코스검증 요청" --> E(🟦 Course/Rendering Supervisor<br>RenderingUseCase.py + CourseValidationSupervisor.py);
+
+    %% --- 3. Agent Layer (What Supervisors call) ---
+    C -- "1. DB 검색" --> F(🟦 DB Search Agent<br>db_search_supervisor.py);
+    C -- "2. 병렬 분석 실행" --> G(🟦 Trend/Sentiment Agents<br>naver_review_api.py + app_llm_graph);
+    C -- "3. 결과 취합/분석" --> H(🟧 LLM 랭킹 리포트 생성<br>ranking_use_case.py);
+
+    D -- "1. 블로그 스크래핑" --> I(🟦 Naver Review Supervisor<br>naver_review_supervisor.py);
+    D -- "2. 개별 블로그 분석" --> J(🟦 자체 교정 루프<br>app_llm_graph);
+    D -- "3. 통계/시각화" --> K(🟦 차트/워드클라우드 생성<br>charts.py + wordclouds.py);
+
+    E -- "AI 렌더링" --> L(🟦 AI Rendering Agent<br>rendering_use_case.py);
+    E -- "코스 검증" --> M(🟦 Course Validation Agent<br>validation_agent.py);
+
+    %% --- 4. Sub-Loops / Special Agents ---
+    subgraph "자체 교정 및 학습 루프"
+        direction LR
+        J --> J1(llm_summarizer);
+        J1 --> J2(rule_scorer);
+        J2 -- "불일치 시 피드백" --> J1;
+        J2 -- "모르는 단어 발견" --> J3(🟧 DynamicScorer (LLM 추론)<br>dynamic_scorer.py);
+        J3 -- "사전 파일(.csv)에 학습/저장" --> J4[📚 KnowledgeBase];
+    end
+
+    %% --- 5. Output Layer ---
+    H -- "랭킹 리포트" --> Z(🟨 UI 업데이트);
+    K -- "감성 분석 대시보드" --> Z;
+    L -- "AI 렌더링 이미지" --> Z;
+    M -- "최적화 코스 제안" --> Z;
+    F -- "단순 검색 결과" --> Z;
+    
+    Z -- "Gradio UI에 결과 표시" --> A;
+
+    %% --- Styling ---
+    classDef green fill:#D5E8D4,stroke:#82B366;
+    classDef blue fill:#DAE8FC,stroke:#6C8EBF;
+    classDef orange fill:#F8CECC,stroke:#B85450;
+    classDef yellow fill:#FFF2CC,stroke:#D6B656;
+    class A green;
+    class Z yellow;
+    class C,D,E,F,G,I,J,K,L,M,J1,J2,J4 blue;
+    class H,J3 orange;
+    class B default;
 ```
 
 
