@@ -87,38 +87,79 @@ FestMoment는 축제 검색부터 감성 분석, AI 이미지 생성까지 올�
 
 ```mermaid
 graph TD
-    %% --- 스타일 정의 ---
-    style EventHandler fill:#FFDAB9,stroke:#F08A24,stroke-width:2px
-    style Supervisor fill:#E8DAEF,stroke:#8E44AD,stroke-width:2px
-    style AgentUseCase fill:#D5F5E3,stroke:#28B463,stroke-width:2px
-    style AgentNode fill:#D6E6FF,stroke:#005AAB,stroke-width:2px
-    style Tools fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px,stroke-dasharray: 5 5
-
-    %% --- 1. Event Handler (최상위) ---
-    EventHandler("UI Event Handlers\n(event_handlers.py)")
-
-    %% --- 2. Supervisors & Agents (중간 계층) ---
-    EventHandler -- triggers --> Supervisor_DB["Supervisor\ndb_search_graph"]
-    EventHandler -- triggers --> Supervisor_Validate["Supervisor\ncourse_validation_graph"]
-    EventHandler -- triggers --> Agent_Rank["Agent\nRankingUseCase"]
-    EventHandler -- triggers --> Agent_Sentiment["Agent\nSentimentAnalysisUseCase"]
-    EventHandler -- triggers --> Agent_Render["Agent\nRenderingUseCase"]
-    EventHandler -- triggers --> Agent_Analysis["Agent\nAnalysisUseCase"]
-
-    %% --- 3. Agent Nodes & Tools (하위 계층) ---
-    subgraph "Supervisors Delegate to Agent Nodes"
-        Supervisor_DB --> Node_FestivalSearch["Agent Node\n(agent_festival_search)"]
-        Supervisor_DB --> Node_NearbySearch["Agent Node\n(agent_nearby_search)"]
-        Supervisor_Validate --> Node_ValidateCourse["Agent Node\n(agent_validate_course)"]
+    subgraph "Presentation Layer"
+        A["UI Event Handlers"]
     end
 
-    subgraph "Agents Use Tools & Sub-Graphs"
-        Agent_Rank --> Tools_Rank["Tools\n(Scraper, LLM Graph, API)"]
-        Agent_Sentiment --> Tools_Sentiment["Tools\n(Scraper, LLM Graph, Charts)"]
-        Agent_Render --> Tools_Render["Tools\n(Gemini Vision, Maps API)"]
-        Agent_Analysis --> Tools_Analysis["Tools\n(Scraper, API)"]
+    subgraph "Application Layer"
+        B["DB Search Supervisor"]
+        C["Course Validation Supervisor"]
+        D["Review Analysis Supervisor"]
     end
+
+    subgraph "Agent Layer"
+        B1["Festival Search Agent"]
+        B2["Nearby Search Agent"]
+        C1["Course Validation Agent"]
+        D1["Review Scraping & Summarizing Agent"]
+        D2["Sentiment & Trend Analysis Agent"]
+        D3["Ranking & Report Agent"]
+    end
+
+    subgraph "Infrastructure / Tool Layer"
+        T1["SQLite Database"]
+        T2["Geocoder (Geopy)"]
+        T3["LLM (Gemini)"]
+        T4["Web Scraper (Playwright)"]
+        T5["Naver API"]
+        T6["Sentiment Dictionaries"]
+        T7["Chart & WordCloud Generators"]
+    end
+
+    A --> B
+    A --> C
+    A --> D
+
+    B --> B1
+    B --> B2
+    C --> C1
+    D --> D1
+    D --> D2
+    D --> D3
+
+    B1 --> T1
+    B2 --> T1
+    C1 --> T2
+    C1 --> T3
+    D1 --> T4
+    D1 --> T3
+    D2 --> T5
+    D2 --> T6
+    D2 --> T7
+    D3 --> T3
+    D3 --> T5
+    D3 --> T6
+
+    style A fill:#FFDAB9,stroke:#F08A24,stroke-width:2px
+    style B fill:#E8DAEF,stroke:#8E44AD,stroke-width:2px
+    style C fill:#E8DAEF,stroke:#8E44AD,stroke-width:2px
+    style D fill:#E8DAEF,stroke:#8E44AD,stroke-width:2px
+    style B1 fill:#D5F5E3,stroke:#28B463,stroke-width:2px
+    style B2 fill:#D5F5E3,stroke:#28B463,stroke-width:2px
+    style C1 fill:#D5F5E3,stroke:#28B463,stroke-width:2px
+    style D1 fill:#D5F5E3,stroke:#28B463,stroke-width:2px
+    style D2 fill:#D5F5E3,stroke:#28B463,stroke-width:2px
+    style D3 fill:#D5F5E3,stroke:#28B463,stroke-width:2px
+    style T1 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
+    style T2 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
+    style T3 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
+    style T4 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
+    style T5 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
+    style T6 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
+    style T7 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
 ```
+
+
 
 ---
 
