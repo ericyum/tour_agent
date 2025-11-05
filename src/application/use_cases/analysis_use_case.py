@@ -17,13 +17,23 @@ from wordcloud import WordCloud
 from konlpy.tag import Okt
 
 # Custom Module Imports
-from src.infrastructure.external_services.naver_search.naver_review_api import get_naver_trend, search_naver_blog
+from src.infrastructure.external_services.naver_search.naver_review_api import (
+    get_naver_trend,
+    search_naver_blog,
+)
 from src.application.services.festival_service import get_festival_details_by_title
-from src.application.supervisors.naver_review_supervisor import NaverReviewSupervisor
+from application.agents.naver_review.naver_review_agent import NaverReviewAgent
 
 
 class AnalysisUseCase:
-    def __init__(self, naver_supervisor: NaverReviewSupervisor, font_path: str, title_to_cat_map: dict, cat_to_icon_map: dict, script_dir: str):
+    def __init__(
+        self,
+        naver_supervisor: NaverReviewAgent,
+        font_path: str,
+        title_to_cat_map: dict,
+        cat_to_icon_map: dict,
+        script_dir: str,
+    ):
         self.naver_supervisor = naver_supervisor
         self.font_path = font_path
         self.title_to_cat_map = title_to_cat_map
@@ -38,7 +48,11 @@ class AnalysisUseCase:
         if plt is None:
             return None, None, "`matplotlib` 라이브러리가 설치되지 않았습니다."
 
-        font_properties = font_manager.FontProperties(fname=self.font_path) if self.font_path else None
+        font_properties = (
+            font_manager.FontProperties(fname=self.font_path)
+            if self.font_path
+            else None
+        )
         details = get_festival_details_by_title(festival_name)
 
         # --- 1. 1-Year Trend Graph ---
@@ -51,10 +65,21 @@ class AnalysisUseCase:
             df = pd.DataFrame(trend_data_yearly)
             df["period"] = pd.to_datetime(df["period"])
             ax_yearly.plot(df["period"], df["ratio"])
-            ax_yearly.set_title(f"'{festival_name}' 최근 1년 검색량 트렌드", fontproperties=font_properties, fontsize=16)
+            ax_yearly.set_title(
+                f"'{festival_name}' 최근 1년 검색량 트렌드",
+                fontproperties=font_properties,
+                fontsize=16,
+            )
             ax_yearly.tick_params(axis="x", rotation=30)
         else:
-            ax_yearly.text(0.5, 0.5, "트렌드 데이터 없음", ha="center", va="center", fontproperties=font_properties)
+            ax_yearly.text(
+                0.5,
+                0.5,
+                "트렌드 데이터 없음",
+                ha="center",
+                va="center",
+                fontproperties=font_properties,
+            )
         plt.tight_layout()
         buf_trend_yearly = io.BytesIO()
         fig_trend_yearly.savefig(buf_trend_yearly, format="png")
@@ -64,22 +89,24 @@ class AnalysisUseCase:
         # --- 2. Event-Period Trend Graph ---
         fig_trend_event, ax_event = plt.subplots(figsize=(10, 5))
         graph_title = f"'{festival_name}' 축제 시작일 중심 트렌드"
-        
+
         if details and details.get("eventstartdate"):
             date_val = details.get("eventstartdate")
-            date_str = str(date_val).split('.')[0]
+            date_str = str(date_val).split(".")[0]
             center_date = pd.to_datetime(date_str, errors="coerce")
 
             if pd.notna(center_date):
                 trend_data_event = None
                 search_date = center_date
-                
+
                 # Try to get data for the current year if it's not in the future
                 is_future_event = center_date > today
                 if not is_future_event:
                     graph_start = center_date - timedelta(days=7)
                     graph_end = center_date + timedelta(days=7)
-                    trend_data_event = get_naver_trend(festival_name, graph_start, graph_end)
+                    trend_data_event = get_naver_trend(
+                        festival_name, graph_start, graph_end
+                    )
 
                 # If no data was found (either because it's a future event or data is sparse), fallback to previous years
                 if trend_data_event is None:
@@ -93,32 +120,57 @@ class AnalysisUseCase:
                         if graph_end > today:
                             continue
 
-                        trend_data_event = get_naver_trend(festival_name, graph_start, graph_end)
+                        trend_data_event = get_naver_trend(
+                            festival_name, graph_start, graph_end
+                        )
                         if trend_data_event:
                             search_date = search_year
                             year_text = "작년" if i == 1 else f"{i}년 전"
                             graph_title += f" ({year_text} 데이터, 사유: {reason_text})"
                             break
-                
+
                 if trend_data_event:
                     df_event = pd.DataFrame(trend_data_event)
                     df_event["period"] = pd.to_datetime(df_event["period"])
-                    
+
                     # Adjust the date of the plot to match the original festival year for comparison
                     if search_date != center_date:
                         time_diff = center_date - search_date
                         df_event["period"] = df_event["period"] + time_diff
 
                     ax_event.plot(df_event["period"], df_event["ratio"])
-                    ax_event.axvline(x=center_date, color="r", linestyle="--", label="Festival Start")
+                    ax_event.axvline(
+                        x=center_date, color="r", linestyle="--", label="Festival Start"
+                    )
                     ax_event.legend()
                     ax_event.tick_params(axis="x", rotation=30)
                 else:
-                    ax_event.text(0.5, 0.5, "기간 트렌드 데이터 없음 (최근 3년간 데이터 부족)", ha="center", va="center", fontproperties=font_properties)
+                    ax_event.text(
+                        0.5,
+                        0.5,
+                        "기간 트렌드 데이터 없음 (최근 3년간 데이터 부족)",
+                        ha="center",
+                        va="center",
+                        fontproperties=font_properties,
+                    )
             else:
-                ax_event.text(0.5, 0.5, "날짜 형식 오류", ha="center", va="center", fontproperties=font_properties)
+                ax_event.text(
+                    0.5,
+                    0.5,
+                    "날짜 형식 오류",
+                    ha="center",
+                    va="center",
+                    fontproperties=font_properties,
+                )
         else:
-            ax_event.text(0.5, 0.5, "축제 시작일 정보 없음", ha="center", va="center", fontproperties=font_properties)
+            ax_event.text(
+                0.5,
+                0.5,
+                "축제 시작일 정보 없음",
+                ha="center",
+                va="center",
+                fontproperties=font_properties,
+            )
 
         ax_event.set_title(graph_title, fontproperties=font_properties, fontsize=16)
         plt.tight_layout()
@@ -134,7 +186,10 @@ class AnalysisUseCase:
             return None, "축제를 선택해주세요."
 
         if WordCloud is None or self.okt is None or np is None:
-            return None, "`wordcloud`, `konlpy`, 또는 `numpy` 라이브러리가 설치되지 않았습니다."
+            return (
+                None,
+                "`wordcloud`, `konlpy`, 또는 `numpy` 라이브러리가 설치되지 않았습니다.",
+            )
 
         main_cat_tuple = self.title_to_cat_map.get(festival_name)
         main_cat = main_cat_tuple[0] if main_cat_tuple else None
@@ -149,17 +204,30 @@ class AnalysisUseCase:
                 try:
                     img = Image.open(path)
                     # 투명 배경이 있는 PNG의 경우, 흰색 배경으로 변환
-                    if 'A' in img.getbands():
+                    if "A" in img.getbands():
                         background = Image.new("RGB", img.size, (255, 255, 255))
-                        background.paste(img, (0, 0), img) # 알파 채널을 마스크로 사용
+                        background.paste(img, (0, 0), img)  # 알파 채널을 마스크로 사용
                         mask_array = np.array(background)
                     else:
                         # 알파 채널이 없는 이미지는 기존 방식대로 처리
-                        mask_array = np.array(img.convert('L'))
+                        mask_array = np.array(img.convert("L"))
                 except Exception as e:
                     print(f"Error loading mask image: {e}")
 
-        stopwords = {"축제", "오늘", "여기", "저희", "이번", "진짜", "정말", "완전", "후기", "위해", "때문", "하나"}
+        stopwords = {
+            "축제",
+            "오늘",
+            "여기",
+            "저희",
+            "이번",
+            "진짜",
+            "정말",
+            "완전",
+            "후기",
+            "위해",
+            "때문",
+            "하나",
+        }
         _, review_texts = await self.naver_supervisor.get_review_summary_and_tips(
             festival_name, num_reviews=num_reviews, return_full_text=True
         )
@@ -213,8 +281,13 @@ class AnalysisUseCase:
         found_blogs_with_images = 0
         target_blog_count = num_blogs
 
-        while found_blogs_with_images < target_blog_count and start_index < max_results_to_scan:
-            blog_reviews = search_naver_blog(f"{festival_name} 후기", display=display_count, start=start_index)
+        while (
+            found_blogs_with_images < target_blog_count
+            and start_index < max_results_to_scan
+        ):
+            blog_reviews = search_naver_blog(
+                f"{festival_name} 후기", display=display_count, start=start_index
+            )
             if not blog_reviews:
                 break
 
@@ -226,8 +299,14 @@ class AnalysisUseCase:
 
                 link = review.get("link")
                 if link and "blog.naver.com" in link:
-                    text_content, image_urls = await self.naver_supervisor._scrape_blog_content(link)
-                    if text_content and "본문 내용을 찾을 수 없습니다" not in text_content and image_urls:
+                    text_content, image_urls = (
+                        await self.naver_supervisor._scrape_blog_content(link)
+                    )
+                    if (
+                        text_content
+                        and "본문 내용을 찾을 수 없습니다" not in text_content
+                        and image_urls
+                    ):
                         is_relevant = await self.naver_supervisor._is_relevant_review(
                             festival_name, review.get("title", ""), text_content
                         )
@@ -241,10 +320,10 @@ class AnalysisUseCase:
                         consecutive_skips += 1
                 else:
                     consecutive_skips += 1
-            
+
             if consecutive_skips >= 3:
                 break
-            
+
             start_index += display_count
 
         local_image_paths = []

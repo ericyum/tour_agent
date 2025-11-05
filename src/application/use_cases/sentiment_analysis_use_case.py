@@ -12,7 +12,7 @@ import json
 from collections import Counter
 
 # Custom Module Imports
-from src.application.supervisors.naver_review_supervisor import NaverReviewSupervisor
+from application.agents.naver_review.naver_review_agent import NaverReviewAgent
 from src.infrastructure.external_services.naver_search.naver_review_api import (
     search_naver_blog,
 )
@@ -35,7 +35,7 @@ from src.domain.knowledge_base import knowledge_base
 
 
 class SentimentAnalysisUseCase:
-    def __init__(self, naver_supervisor: NaverReviewSupervisor, script_dir: str):
+    def __init__(self, naver_supervisor: NaverReviewAgent, script_dir: str):
         self.naver_supervisor = naver_supervisor
         self.script_dir = script_dir
         self.llm = get_llm_client(temperature=0.1)

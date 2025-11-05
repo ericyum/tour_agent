@@ -2,17 +2,22 @@ import os
 import requests
 import re
 from dotenv import load_dotenv
-from src.infrastructure.external_services.naver_search.naver_review_api import search_naver_blog
-from playwright.async_api import async_playwright # Original scraper used playwright
-from src.infrastructure.llm_client import get_llm_client # Added LLM client import
+from src.infrastructure.external_services.naver_search.naver_review_api import (
+    search_naver_blog,
+)
+from playwright.async_api import async_playwright  # Original scraper used playwright
+from src.infrastructure.llm_client import get_llm_client  # Added LLM client import
 
 load_dotenv()
 
-class NaverReviewSupervisor:
-    def __init__(self):
-        self.llm = get_llm_client() # Initialize LLM client
 
-    async def get_review_summary_and_tips(self, festival_name, num_reviews=5, return_full_text=False, return_meta=False):
+class NaverReviewAgent:
+    def __init__(self):
+        self.llm = get_llm_client()  # Initialize LLM client
+
+    async def get_review_summary_and_tips(
+        self, festival_name, num_reviews=5, return_full_text=False, return_meta=False
+    ):
         search_query = f"{festival_name} 후기"
         print(f"Searching Naver blogs for reviews of '{search_query}'...")
 
@@ -20,43 +25,68 @@ class NaverReviewSupervisor:
         consecutive_skips = 0
         start_index = 1
         max_results_to_scan = 100  # Scan up to 100 results
-        display_count = 20 # Fetch 20 at a time
-        should_stop_fetching = False # Flag to stop outer loop
+        display_count = 20  # Fetch 20 at a time
+        should_stop_fetching = False  # Flag to stop outer loop
 
-        while len(reviews_with_content) < num_reviews and start_index < max_results_to_scan:
-            blog_results_meta = search_naver_blog(search_query, display=display_count, start=start_index)
-            
+        while (
+            len(reviews_with_content) < num_reviews
+            and start_index < max_results_to_scan
+        ):
+            blog_results_meta = search_naver_blog(
+                search_query, display=display_count, start=start_index
+            )
+
             if not blog_results_meta:
                 break
 
             for review_meta in blog_results_meta:
                 if len(reviews_with_content) >= num_reviews:
                     break
-                
+
                 if consecutive_skips >= 3:
-                    print(f"DEBUG: Skipped 3 consecutive blogs. Proceeding with {len(reviews_with_content)} reviews.")
-                    should_stop_fetching = True # Set flag
-                    break # Break from inner for loop
+                    print(
+                        f"DEBUG: Skipped 3 consecutive blogs. Proceeding with {len(reviews_with_content)} reviews."
+                    )
+                    should_stop_fetching = True  # Set flag
+                    break  # Break from inner for loop
 
                 link = review_meta.get("link")
                 if link and "blog.naver.com" in link:
                     text_content, _ = await self._scrape_blog_content(link)
-                    if text_content and "본문 내용을 찾을 수 없습니다" not in text_content and "페이지에 접근하는 중 오류" not in text_content:
-                        is_relevant = await self._is_relevant_review(festival_name, review_meta.get("title", ""), text_content)
+                    if (
+                        text_content
+                        and "본문 내용을 찾을 수 없습니다" not in text_content
+                        and "페이지에 접근하는 중 오류" not in text_content
+                    ):
+                        is_relevant = await self._is_relevant_review(
+                            festival_name, review_meta.get("title", ""), text_content
+                        )
                         if is_relevant:
-                            print(f"DEBUG: Scraped content for '{review_meta.get('title')}': {text_content[:200]}...")
-                            reviews_with_content.append({"title": review_meta.get("title", ""), "content": text_content, "link": review_meta.get("link", "")})
+                            print(
+                                f"DEBUG: Scraped content for '{review_meta.get('title')}': {text_content[:200]}..."
+                            )
+                            reviews_with_content.append(
+                                {
+                                    "title": review_meta.get("title", ""),
+                                    "content": text_content,
+                                    "link": review_meta.get("link", ""),
+                                }
+                            )
                             consecutive_skips = 0
                         else:
-                            print(f"DEBUG: Blog '{review_meta.get('title')}' deemed irrelevant by LLM validator. Skipping.")
+                            print(
+                                f"DEBUG: Blog '{review_meta.get('title')}' deemed irrelevant by LLM validator. Skipping."
+                            )
                             consecutive_skips += 1
                     else:
-                        print(f"DEBUG: Failed to scrape content for '{review_meta.get('title')}' or content was empty/error. Skipping.")
+                        print(
+                            f"DEBUG: Failed to scrape content for '{review_meta.get('title')}' or content was empty/error. Skipping."
+                        )
                         consecutive_skips += 1
                 else:
                     consecutive_skips += 1
-            
-            if should_stop_fetching: # Check flag to break outer while loop
+
+            if should_stop_fetching:  # Check flag to break outer while loop
                 break
 
             start_index += display_count
@@ -70,10 +100,12 @@ class NaverReviewSupervisor:
             if return_meta:
                 return "", reviews_with_content
             else:
-                full_texts = [review['content'] for review in reviews_with_content]
+                full_texts = [review["content"] for review in reviews_with_content]
                 return "", full_texts
 
-        llm_generated_summary, _ = await self._llm_summarize_reviews(festival_name, reviews_with_content)
+        llm_generated_summary, _ = await self._llm_summarize_reviews(
+            festival_name, reviews_with_content
+        )
         return llm_generated_summary, llm_generated_summary
 
     async def _scrape_blog_content(self, url: str) -> tuple[str, list[str]]:
@@ -122,15 +154,18 @@ class NaverReviewSupervisor:
 
                                     src = lazy_src or data_src or regular_src
 
-                                    if (
-                                        src
-                                        and src.startswith("http")
-                                    ):
+                                    if src and src.startswith("http"):
                                         # Filter out emoticons/stickers
-                                        if "storep-phinf.pstatic.net" in src and "ogq_" in src:
+                                        if (
+                                            "storep-phinf.pstatic.net" in src
+                                            and "ogq_" in src
+                                        ):
                                             continue
                                         # Filter out map images
-                                        if "simg.pstatic.net" in src and "static.map" in src:
+                                        if (
+                                            "simg.pstatic.net" in src
+                                            and "static.map" in src
+                                        ):
                                             continue
 
                                         # 썸네일 파라미터(?type=...)를 포함하여 원본 이미지 URL 확보
@@ -154,7 +189,9 @@ class NaverReviewSupervisor:
         except Exception as e:
             return f"페이지에 접근하는 중 오류가 발생했습니다: {e}", []
 
-    async def _is_relevant_review(self, festival_name: str, blog_title: str, blog_content: str) -> bool:
+    async def _is_relevant_review(
+        self, festival_name: str, blog_title: str, blog_content: str
+    ) -> bool:
         prompt = f"""당신은 블로그 게시물의 주제를 정확하게 판별하는 전문가입니다.
 사용자는 '{festival_name}' 축제에 대한 '진짜 후기'를 찾고 있습니다.
 아래의 조건에 따라 주어진 블로그 제목과 본문이 검색 의도에 부합하는지 판별해주세요.
@@ -175,27 +212,37 @@ class NaverReviewSupervisor:
             response = await self.llm.ainvoke(prompt)
             answer = response.content.strip()
             if "예" in answer:
-                print(f"DEBUG: Validation successful for '{blog_title}'. It's a relevant review.")
+                print(
+                    f"DEBUG: Validation successful for '{blog_title}'. It's a relevant review."
+                )
                 return True
             else:
-                print(f"DEBUG: Validation failed for '{blog_title}'. Not a relevant review.")
+                print(
+                    f"DEBUG: Validation failed for '{blog_title}'. Not a relevant review."
+                )
                 return False
         except Exception as e:
             print(f"DEBUG: LLM validation failed for '{blog_title}': {e}")
-            return False # Assume not relevant if validation fails
+            return False  # Assume not relevant if validation fails
 
     async def get_sentiment_for_text(self, text: str):
         # This function was not part of the original NaverReviewSupervisor
         # It will be implemented by the new LLM-driven sentiment analysis
         return []
 
-    async def _llm_summarize_reviews(self, festival_name: str, reviews_with_content: list) -> tuple[str, str]:
-        import traceback # Added import for traceback
-        combined_content = "\n\n--- 다음 블로그 ---\n\n".join([f"제목: {r['title']}\n내용: {r['content']}" for r in reviews_with_content])
-        
-        print(f"DEBUG: Combined content sent to LLM (first 500 chars):\n{combined_content[:500]}...") # Print first 500 chars
-        
-        
+    async def _llm_summarize_reviews(
+        self, festival_name: str, reviews_with_content: list
+    ) -> tuple[str, str]:
+        import traceback  # Added import for traceback
+
+        combined_content = "\n\n--- 다음 블로그 ---\n\n".join(
+            [f"제목: {r['title']}\n내용: {r['content']}" for r in reviews_with_content]
+        )
+
+        print(
+            f"DEBUG: Combined content sent to LLM (first 500 chars):\n{combined_content[:500]}..."
+        )  # Print first 500 chars
+
         prompt = f"""당신은 축제 리뷰를 분석하여 핵심 정보를 추출하는 전문가입니다.
 아래는 '{festival_name}' 축제에 대한 여러 블로그 리뷰 내용입니다.
 이 리뷰들을 종합하여 다음 소주제별로 정보를 분류하고 요약해주세요.
@@ -275,10 +322,12 @@ class NaverReviewSupervisor:
             response = await self.llm.ainvoke(prompt)
             raw_summary = response.content.strip()
 
-            print(f"DEBUG: Raw summary from LLM:\n{raw_summary}\n--- END RAW SUMMARY ---") # Print raw LLM output
+            print(
+                f"DEBUG: Raw summary from LLM:\n{raw_summary}\n--- END RAW SUMMARY ---"
+            )  # Print raw LLM output
 
             sections_data = {}
-            
+
             # Define the expected headings for parsing, including markdown
             headings_with_markdown = [
                 "**추천 방문 대상 (누구와 함께 가면 좋을까?)**",
@@ -300,11 +349,13 @@ class NaverReviewSupervisor:
                 "**행사장 분위기 (BGM, 조명 등)**",
                 "**어르신/장애인 접근성**",
                 "**외국인 방문객 시선**",
-                "**총평: 이 행사를 한 문장으로 요약한다면?**"
+                "**총평: 이 행사를 한 문장으로 요약한다면?**",
             ]
-            
+
             # Add the main header for initial split
-            full_text_to_parse = raw_summary.replace("--- 방문객 경험 중심 요약 (소주제별 분류) ---", "").strip()
+            full_text_to_parse = raw_summary.replace(
+                "--- 방문객 경험 중심 요약 (소주제별 분류) ---", ""
+            ).strip()
 
             # Iterate through headings to extract content
             for i, heading in enumerate(headings_with_markdown):
@@ -312,48 +363,61 @@ class NaverReviewSupervisor:
                 if start_idx == -1:
                     sections_data[heading] = "정보 없음"
                     continue
-                
+
                 content_start_idx = start_idx + len(heading)
-                
+
                 # Find the next heading to determine the end of the current section's content
                 next_heading_idx = -1
                 for j in range(i + 1, len(headings_with_markdown)):
-                    temp_idx = full_text_to_parse.find(headings_with_markdown[j], content_start_idx)
+                    temp_idx = full_text_to_parse.find(
+                        headings_with_markdown[j], content_start_idx
+                    )
                     if temp_idx != -1:
                         next_heading_idx = temp_idx
                         break
-                
+
                 if next_heading_idx != -1:
-                    content = full_text_to_parse[content_start_idx:next_heading_idx].strip()
+                    content = full_text_to_parse[
+                        content_start_idx:next_heading_idx
+                    ].strip()
                 else:
                     content = full_text_to_parse[content_start_idx:].strip()
-                
+
                 # Remove "[여기에 내용 요약]" placeholder if LLM didn't fill it
                 if content == "[여기에 내용 요약]":
                     content = "정보 없음"
-                
+
                 sections_data[heading] = content.strip()
-            
+
             final_summary_parts = []
             for heading in headings_with_markdown:
                 content = sections_data.get(heading, "정보 없음").strip()
-                
+
                 # If content is "정보 없음", skip this section unless it's the overall summary
                 if content == "정보 없음" and not heading.startswith("**총평"):
                     continue
 
                 # Remove the markdown from the heading for display in the final summary construction
                 display_heading = heading.replace("**", "")
-                
+
                 if display_heading.startswith("총평"):
                     final_summary_parts.append(f"**{display_heading}**\n{content}\n")
                 else:
                     final_summary_parts.append(f"**{display_heading}**\n{content}\n\n")
-            
-            final_summary = f"**{festival_name} 축제 방문객 경험 중심 요약**\n\n" + "".join(final_summary_parts)
-            
-            return final_summary, raw_summary # Return the formatted summary and the raw summary for potential debugging
+
+            final_summary = (
+                f"**{festival_name} 축제 방문객 경험 중심 요약**\n\n"
+                + "".join(final_summary_parts)
+            )
+
+            return (
+                final_summary,
+                raw_summary,
+            )  # Return the formatted summary and the raw summary for potential debugging
         except Exception as e:
             print(f"LLM 요약 중 오류 발생: {e}")
-            traceback.print_exc() # Print traceback for debugging
-            return "LLM 요약 생성 중 오류가 발생했습니다.", "LLM 요약 생성 중 오류가 발생했습니다."
+            traceback.print_exc()  # Print traceback for debugging
+            return (
+                "LLM 요약 생성 중 오류가 발생했습니다.",
+                "LLM 요약 생성 중 오류가 발생했습니다.",
+            )

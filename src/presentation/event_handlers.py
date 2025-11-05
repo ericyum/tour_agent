@@ -34,7 +34,7 @@ from src.application.supervisors.db_search_supervisor import db_search_graph
 from src.application.supervisors.course_validation_supervisor import (
     course_validation_graph,
 )
-from src.application.supervisors.naver_review_supervisor import NaverReviewSupervisor
+from application.agents.naver_review.naver_review_agent import NaverReviewAgent
 from src.application.use_cases.analysis_use_case import AnalysisUseCase
 from src.application.use_cases.sentiment_analysis_use_case import (
     SentimentAnalysisUseCase,
@@ -59,7 +59,7 @@ from src.application.core.utils import change_page
 script_dir = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-naver_supervisor = NaverReviewSupervisor()
+naver_supervisor = NaverReviewAgent()
 precaution_agent = PrecautionAgent()
 
 analysis_use_case = AnalysisUseCase(
