@@ -87,129 +87,55 @@ FestMoment는 축제 검색부터 감성 분석, AI 이미지 생성까지 올�
 
 ```mermaid
 graph TD
-    subgraph "Presentation Layer"
-        A["UI Event Handlers"]
-    end
-
-    subgraph "Application Layer"
-        B["DB Search Supervisor"]
-        C["Course Validation Supervisor"]
-        D["Review Analysis Supervisor"]
-    end
-
-    subgraph "Agent Layer"
-        B1["Festival Search Agent"]
-        B2["Nearby Search Agent"]
-        C1["Course Validation Agent"]
-        D1["Review Scraping & Summarizing Agent"]
-        D2["Sentiment & Trend Analysis Agent"]
-        D3["Ranking & Report Agent"]
-    end
-
-    subgraph "Infrastructure / Tool Layer"
-        T1["SQLite Database"]
-        T2["Geocoder (Geopy)"]
-        T3["LLM (Gemini)"]
-        T4["Web Scraper (Playwright)"]
-        T5["Naver API"]
-        T6["Sentiment Dictionaries"]
-        T7["Chart & WordCloud Generators"]
-    end
-
-    A --> B
-    A --> C
-    A --> D
-
-    B --> B1
-    B --> B2
-    C --> C1
-    D --> D1
-    D --> D2
-    D --> D3
-
-    B1 --> T1
-    B2 --> T1
-    C1 --> T2
-    C1 --> T3
-    D1 --> T4
-    D1 --> T3
-    D2 --> T5
-    D2 --> T6
-    D2 --> T7
-    D3 --> T3
-    D3 --> T5
-    D3 --> T6
-
-    style A fill:#FFDAB9,stroke:#F08A24,stroke-width:2px
-    style B fill:#E8DAEF,stroke:#8E44AD,stroke-width:2px
-    style C fill:#E8DAEF,stroke:#8E44AD,stroke-width:2px
-    style D fill:#E8DAEF,stroke:#8E44AD,stroke-width:2px
-    style B1 fill:#D5F5E3,stroke:#28B463,stroke-width:2px
-    style B2 fill:#D5F5E3,stroke:#28B463,stroke-width:2px
-    style C1 fill:#D5F5E3,stroke:#28B463,stroke-width:2px
-    style D1 fill:#D5F5E3,stroke:#28B463,stroke-width:2px
-    style D2 fill:#D5F5E3,stroke:#28B463,stroke-width:2px
-    style D3 fill:#D5F5E3,stroke:#28B463,stroke-width:2px
-    style T1 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
-    style T2 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
-    style T3 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
-    style T4 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
-    style T5 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
-    style T6 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
-    style T7 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
-```  
-  
-```mermaid  
-graph TD
     %% --- 1. Input Layer ---
-    A(🟩 Gradio UI 이벤트) -- "검색, 랭킹, 상세 탭 클릭 등" --> B[event_handlers.py<br>(UI 이벤트 핸들러)];
+    A(🟩 Gradio UI 이벤트) -- "검색, 랭킹, 상세 탭 클릭 등" --> B["event_handlers.py (UI 이벤트 핸들러)"]
 
     %% --- 2. Supervisor (Use Case) Layer ---
-    B -- "검색/랭킹 요청" --> C(🟦 DB/Ranking Supervisor<br>RankingUseCase.py);
-    B -- "감성분석/트렌드 요청" --> D(🟦 Sentiment/Analysis Supervisor<br>SentimentAnalysisUseCase.py);
-    B -- "AI렌더링/코스검증 요청" --> E(🟦 Course/Rendering Supervisor<br>RenderingUseCase.py + CourseValidationSupervisor.py);
+    B -- "검색/랭킹 요청" --> C("🟦 DB/Ranking Supervisor RankingUseCase.py")
+    B -- "감성분석/트렌드 요청" --> D("🟦 Sentiment/Analysis Supervisor SentimentAnalysisUseCase.py")
+    B -- "AI렌더링/코스검증 요청" --> E("🟦 Course/Rendering Supervisor RenderingUseCase.py + CourseValidationSupervisor.py")
 
     %% --- 3. Agent Layer (What Supervisors call) ---
-    C -- "1. DB 검색" --> F(🟦 DB Search Agent<br>db_search_supervisor.py);
-    C -- "2. 병렬 분석 실행" --> G(🟦 Trend/Sentiment Agents<br>naver_review_api.py + app_llm_graph);
-    C -- "3. 결과 취합/분석" --> H(🟧 LLM 랭킹 리포트 생성<br>ranking_use_case.py);
+    C -- "① DB 검색" --> F("🟦 DB Search Agent db_search_supervisor.py")
+    C -- "② 병렬 분석 실행" --> G("🟦 Trend/Sentiment Agents naver_review_api.py + app_llm_graph")
+    C -- "③ 결과 취합/분석" --> H("🟧 LLM 랭킹 리포트 생성 ranking_use_case.py")
 
-    D -- "1. 블로그 스크래핑" --> I(🟦 Naver Review Supervisor<br>naver_review_supervisor.py);
-    D -- "2. 개별 블로그 분석" --> J(🟦 자체 교정 루프<br>app_llm_graph);
-    D -- "3. 통계/시각화" --> K(🟦 차트/워드클라우드 생성<br>charts.py + wordclouds.py);
+    D -- "① 블로그 스크래핑" --> I("🟦 Naver Review Supervisor naver_review_supervisor.py")
+    D -- "② 개별 블로그 분석" --> J("🟦 자체 교정 루프 app_llm_graph")
+    D -- "③ 통계/시각화" --> K("🟦 차트/워드클라우드 생성 charts.py + wordclouds.py")
 
-    E -- "AI 렌더링" --> L(🟦 AI Rendering Agent<br>rendering_use_case.py);
-    E -- "코스 검증" --> M(🟦 Course Validation Agent<br>validation_agent.py);
+    E -- "AI 렌더링" --> L("🟦 AI Rendering Agent rendering_use_case.py")
+    E -- "코스 검증" --> M("🟦 Course Validation Agent validation_agent.py")
 
     %% --- 4. Sub-Loops / Special Agents ---
     subgraph "자체 교정 및 학습 루프"
         direction LR
-        J --> J1(llm_summarizer);
-        J1 --> J2(rule_scorer);
-        J2 -- "불일치 시 피드백" --> J1;
-        J2 -- "모르는 단어 발견" --> J3(🟧 DynamicScorer (LLM 추론)<br>dynamic_scorer.py);
-        J3 -- "사전 파일(.csv)에 학습/저장" --> J4[📚 KnowledgeBase];
+        J --> J1(llm_summarizer)
+        J1 --> J2(rule_scorer)
+        J2 -- "불일치 시 피드백" --> J1
+        J2 -- "모르는 단어 발견" --> J3("🟧 DynamicScorer (LLM 추론) dynamic_scorer.py")
+        J3 -- "사전 파일(.csv)에 학습/저장" --> J4[📚 KnowledgeBase]
     end
 
     %% --- 5. Output Layer ---
-    H -- "랭킹 리포트" --> Z(🟨 UI 업데이트);
-    K -- "감성 분석 대시보드" --> Z;
-    L -- "AI 렌더링 이미지" --> Z;
-    M -- "최적화 코스 제안" --> Z;
-    F -- "단순 검색 결과" --> Z;
+    H -- "랭킹 리포트" --> Z(🟨 UI 업데이트)
+    K -- "감성 분석 대시보드" --> Z
+    L -- "AI 렌더링 이미지" --> Z
+    M -- "최적화 코스 제안" --> Z
+    F -- "단순 검색 결과" --> Z
     
-    Z -- "Gradio UI에 결과 표시" --> A;
+    Z -- "Gradio UI에 결과 표시" --> A
 
     %% --- Styling ---
-    classDef green fill:#D5E8D4,stroke:#82B366;
-    classDef blue fill:#DAE8FC,stroke:#6C8EBF;
-    classDef orange fill:#F8CECC,stroke:#B85450;
-    classDef yellow fill:#FFF2CC,stroke:#D6B656;
-    class A green;
-    class Z yellow;
-    class C,D,E,F,G,I,J,K,L,M,J1,J2,J4 blue;
-    class H,J3 orange;
-    class B default;
+    classDef green fill:#D5E8D4,stroke:#82B366
+    classDef blue fill:#DAE8FC,stroke:#6C8EBF
+    classDef orange fill:#F8CECC,stroke:#B85450
+    classDef yellow fill:#FFF2CC,stroke:#D6B656
+    class A green
+    class Z yellow
+    class C,D,E,F,G,I,J,K,L,M,J1,J2,J4 blue
+    class H,J3 orange
+    class B default
 ```
 
 
