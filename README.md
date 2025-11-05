@@ -100,7 +100,7 @@ graph TD
     C -- "② 병렬 분석 실행" --> G("🟦 Trend/Sentiment Agents naver_review_api.py + app_llm_graph")
     C -- "③ 결과 취합/분석" --> H("🟧 LLM 랭킹 리포트 생성 ranking_use_case.py")
 
-    D -- "① 블로그 스크래핑" --> I("🟦 Naver Review Supervisor naver_review_supervisor.py")
+    D -- "① 블로그 스크래핑" --> I("🟦 Naver Review Agent naver_review_agent.py")
     D -- "② 개별 블로그 분석" --> J("🟦 자체 교정 루프 app_llm_graph")
     D -- "③ 통계/시각화" --> K("🟦 차트/워드클라우드 생성 charts.py + wordclouds.py")
 
