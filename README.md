@@ -159,7 +159,7 @@ graph TD
     style T7 fill:#E5E7E9,stroke:#5D6D7E,stroke-width:1px
 ```  
   
-```  
+```mermaid  
 graph TD
     %% --- 1. Input Layer ---
     A(🟩 Gradio UI 이벤트) -- "검색, 랭킹, 상세 탭 클릭 등" --> B[event_handlers.py<br>(UI 이벤트 핸들러)];
