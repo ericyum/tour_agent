@@ -49,16 +49,16 @@ def create_ui():
         blog_judgments_state = gr.State()
 
         # --- [2] UI Definition (페이지 구조) ---
-        gr.Markdown("#  Tourist Agent ✈️ (Tour_Agent)")
+        gr.Markdown("#  Festival Moment 🎪")
 
         # --- (A) Top Navigation Bar (상단 네비게이션 바) ---
         with gr.Tabs(selected="home") as top_level_tabs:
             with gr.TabItem("🏠 홈", id="home"):
                 gr.Markdown(
                     """
-                    ## 🌟 Tour Agent에 오신 것을 환영합니다!
+                    ## 🌟 Festival Moment에 오신 것을 환영합니다!
 
-                    Tour Agent는 당신의 완벽한 축제 및 여행 경험을 위한 AI 기반 파트너입니다.
+                    Festival Moment는 당신의 완벽한 축제 및 여행 경험을 위한 AI 기반 파트너입니다.
 
                     - **🔍 검색:** 전국의 모든 축제 정보를 원하는 조건으로 검색하세요.
                     - **🏆 순위:** AI가 검색된 축제들의 화제성과 만족도를 분석하여 똑똑한 순위를 매겨줍니다.
