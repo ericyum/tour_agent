@@ -18,14 +18,14 @@ from src.infrastructure.external_services.naver_search.naver_review_api import (
 )
 from src.application.core.graph import app_llm_graph
 from src.application.core.utils import (
-    get_season,
     save_df_to_csv,
     summarize_negative_feedback,
 )
 from src.infrastructure.reporting.charts import (
     create_donut_chart,
     create_stacked_bar_chart,
-    create_score_distribution_histogram,
+    create_satisfaction_level_bar_chart,
+    create_absolute_score_line_chart,
     create_outlier_boxplot,
 )
 from src.infrastructure.reporting.wordclouds import create_sentiment_wordclouds
@@ -39,6 +39,67 @@ class SentimentAnalysisUseCase:
         self.naver_supervisor = naver_supervisor
         self.script_dir = script_dir
         self.llm = get_llm_client(temperature=0.1)
+
+    async def _generate_distribution_interpretation(self, counts: dict, total_sentences: int, boundaries: dict, avg_score: float) -> str:
+        if total_sentences == 0:
+            return "분석할 문장이 없습니다."
+
+        prompt = f"""
+        You are an expert data analyst specializing in customer feedback analysis. Your task is to write a comprehensive, easy-to-understand analysis of a festival's sentiment distribution in Korean, based on the data provided. The analysis must be objective, data-driven, and strictly follow the requested markdown format.
+
+        **Input Data:**
+        - Total Sentences Analyzed: {total_sentences}
+        - Sentence Counts per Satisfaction Level: {counts}
+        - Absolute Average Score (from -5.0 to 5.0): {avg_score:.2f}
+        - Satisfaction Level Boundaries:
+            - Very Dissatisfied: < {boundaries['very_dissatisfied_upper']:.2f}
+            - Dissatisfied: < {boundaries['dissatisfied_upper']:.2f}
+            - Neutral: < {boundaries['neutral_upper']:.2f}
+            - Satisfied: < {boundaries['satisfied_upper']:.2f}
+            - Very Satisfied: >= {boundaries['satisfied_upper']:.2f}
+
+        **Instructions:**
+        1.  **Role:** Act as a professional data analyst.
+        2.  **Tone:** Write in clear, objective, and helpful Korean.
+        3.  **Format:** You MUST follow this markdown format exactly. Do not add any other sections.
+
+            ```markdown
+            ### 📊 만족도 분포 종합 분석
+
+            **주요 지표:**
+            - **분석 문장 수**: {total_sentences}개
+            - **평균 만족도 점수**: {avg_score:.2f}점 (5점 만점)
+            - **만족도 Level 기준**: (매우 불만족 < {boundaries['very_dissatisfied_upper']:.2f} < 불만족 < {boundaries['dissatisfied_upper']:.2f} < 보통 < {boundaries['neutral_upper']:.2f} < 만족 < {boundaries['satisfied_upper']:.2f} < 매우 만족)
+
+            **분포 형태 분석:**
+            [Based on the sentence counts, describe the shape of the distribution. Use one of the following patterns:
+            - **압도적 긍정 (J-커브형):** If '매우 만족' and '만족' counts are overwhelmingly dominant.
+            - **양극화 (U-커브형):** If '매우 만족' and '매우 불만족' have the highest counts, and '보통' has a low count.
+            - **다양한 평가 (평평한 분포):** If counts are spread out across all levels without a clear single peak.
+            - **보통 중심 (종형 분포):** If '보통' has the highest count, with other levels tapering off.
+            - **부정적 평가 (L-커브형):** If '매우 불만족' and '불만족' counts are overwhelmingly dominant.
+            Provide a brief, one-sentence description of the shape in Korean.]
+
+            **종합 해석:**
+            [Synthesize all the information into a final conclusion in Korean. CRITICALLY, interpret the distribution shape in the context of the **Absolute Average Score**.
+            - If the average score is very high (e.g., > 2.5), explain that even the '보통(Neutral)' category likely represents positive opinions, making the overall feedback very strong.
+            - If the average score is very low (e.g., < 0.0), explain that even '보통(Neutral)' might indicate dissatisfaction.
+            - If the distribution is polarized, recommend looking into the specific causes.
+            - If the distribution is diverse/flat, mention that visitors had varied experiences with different aspects of the event.
+            Provide a 2-3 sentence summary in Korean.]
+            ```
+        4.  **Constraint:** Generate only the markdown content as requested. Do not add any introductory or concluding remarks outside of the specified format.
+        """
+        try:
+            response = await self.llm.ainvoke(prompt)
+            # Extract markdown content if the LLM wraps it in ```markdown
+            match = re.search(r"```markdown\n(.*)```", response.content, re.DOTALL)
+            if match:
+                return match.group(1).strip()
+            return response.content.strip()
+        except Exception as e:
+            print(f"Error generating LLM-based distribution interpretation: {e}")
+            return "자동 분석 생성 중 오류가 발생했습니다."
 
     def _format_positive_keywords_html(
         self, keywords_data: list, total_reviews: int
@@ -203,20 +264,6 @@ class SentimentAnalysisUseCase:
         all_scores = []
         all_negative_sentences = []
         all_aspect_sentiment_pairs = []
-        seasonal_data = {
-            "봄": {"pos": 0, "neg": 0},
-            "여름": {"pos": 0, "neg": 0},
-            "가을": {"pos": 0, "neg": 0},
-            "겨울": {"pos": 0, "neg": 0},
-            "정보없음": {"pos": 0, "neg": 0},
-        }
-        seasonal_aspect_pairs = {
-            "봄": [],
-            "여름": [],
-            "가을": [],
-            "겨울": [],
-            "정보없음": [],
-        }
         total_pos, total_neg = 0, 0
 
         start_index = 1
@@ -277,10 +324,6 @@ class SentimentAnalysisUseCase:
                     all_scores.extend([j["score"] for j in judgments])
                     all_aspect_sentiment_pairs.extend(aspect_pairs)
 
-                    season = get_season(blog_data.get("postdate", ""))
-                    if season in seasonal_aspect_pairs:
-                        seasonal_aspect_pairs[season].extend(aspect_pairs)
-
                     blog_results_list.append(
                         {
                             "블로그 제목": re.sub(
@@ -315,32 +358,6 @@ class SentimentAnalysisUseCase:
         boundaries = boundary_results["boundaries"]
         outliers = boundary_results["outliers"]
 
-        distribution_chart_path = None
-        if all_scores and boundaries:
-            fig = create_score_distribution_histogram(
-                all_scores, boundaries, f"{festival_name} 감성 점수 분포"
-            )
-            if fig:
-                distribution_chart_path = os.path.join(
-                    self.script_dir, "temp_img", f"dist_chart_{festival_name}.png"
-                )
-                os.makedirs(os.path.dirname(distribution_chart_path), exist_ok=True)
-                fig.savefig(distribution_chart_path)
-                plt.close(fig)
-
-        outlier_chart_path = None
-        if all_scores:
-            fig = create_outlier_boxplot(
-                all_scores, f"{festival_name} 감성 점수 이상치"
-            )
-            if fig:
-                outlier_chart_path = os.path.join(
-                    self.script_dir, "temp_img", f"outlier_chart_{festival_name}.png"
-                )
-                os.makedirs(os.path.dirname(outlier_chart_path), exist_ok=True)
-                fig.savefig(outlier_chart_path)
-                plt.close(fig)
-
         processed_blog_results = []
         all_satisfaction_levels = []
 
@@ -363,9 +380,6 @@ class SentimentAnalysisUseCase:
                     neg_count += 1
                     all_negative_sentences.append(j["sentence"])
 
-            season = get_season(blog.get("postdate", ""))
-            seasonal_data[season]["pos"] += pos_count
-            seasonal_data[season]["neg"] += neg_count
             total_pos += pos_count
             total_neg += neg_count
 
@@ -405,6 +419,57 @@ class SentimentAnalysisUseCase:
         overall_avg_satisfaction = (
             np.mean(all_satisfaction_levels) if all_satisfaction_levels else 3.0
         )
+        
+        # --- New: Satisfaction Level Counting and Interpretation ---
+        level_map = {1: "매우 불만족", 2: "불만족", 3: "보통", 4: "만족", 5: "매우 만족"}
+        satisfaction_counts = Counter(
+            [level_map.get(level, "보통") for level in all_satisfaction_levels]
+        )
+        
+        distribution_chart_path = None
+        if all_satisfaction_levels:
+            fig = create_satisfaction_level_bar_chart(
+                satisfaction_counts, f"{festival_name} 상대적 만족도 분포"
+            )
+            if fig:
+                distribution_chart_path = os.path.join(
+                    self.script_dir, "temp_img", f"dist_chart_{festival_name}.png"
+                )
+                os.makedirs(os.path.dirname(distribution_chart_path), exist_ok=True)
+                fig.savefig(distribution_chart_path)
+                plt.close(fig)
+
+        absolute_chart_path = None
+        if all_scores:
+            fig = create_absolute_score_line_chart(
+                all_scores, f"{festival_name} 절대 점수 분포"
+            )
+            if fig:
+                absolute_chart_path = os.path.join(
+                    self.script_dir, "temp_img", f"abs_chart_{festival_name}.png"
+                )
+                os.makedirs(os.path.dirname(absolute_chart_path), exist_ok=True)
+                fig.savefig(absolute_chart_path)
+                plt.close(fig)
+
+        distribution_description = await self._generate_distribution_interpretation(
+            satisfaction_counts, len(all_satisfaction_levels), boundaries, overall_avg_satisfaction
+        )
+        # --- End New ---
+
+        outlier_chart_path = None
+        if all_scores:
+            fig = create_outlier_boxplot(
+                all_scores, f"{festival_name} 감성 점수 이상치"
+            )
+            if fig:
+                outlier_chart_path = os.path.join(
+                    self.script_dir, "temp_img", f"outlier_chart_{festival_name}.png"
+                )
+                os.makedirs(os.path.dirname(outlier_chart_path), exist_ok=True)
+                fig.savefig(outlier_chart_path)
+                plt.close(fig)
+
         neg_summary_text = summarize_negative_feedback(all_negative_sentences)
         overall_summary_text = f"- **총 분석 블로그**: {len(blog_results_list)}개\n- **전체 평균 만족도**: {overall_avg_satisfaction:.2f} / 5.0 점\n- **긍정 문장 수**: {total_pos}개\n- **부정 문장 수**: {total_neg}개"
 
@@ -426,39 +491,6 @@ class SentimentAnalysisUseCase:
         overall_chart = create_donut_chart(
             total_pos, total_neg, f"{festival_name} 전체 후기 요약"
         )
-        seasonal_charts = {
-            season: create_stacked_bar_chart(data["pos"], data["neg"], f"{season} 시즌")
-            for season, data in seasonal_data.items()
-            if data["pos"] > 0 or data["neg"] > 0
-        }
-
-        seasonal_pos_wc_paths = {}
-        seasonal_neg_wc_paths = {}
-
-        for season, pairs in seasonal_aspect_pairs.items():
-            if season == "정보없음" or not pairs:
-                continue
-
-            mask_name_map = {
-                "봄": "mask_spring",
-                "여름": "mask_summer",
-                "가을": "mask_fall",
-                "겨울": "mask_winter",
-            }
-            mask_filename = mask_name_map.get(season)
-            mask_path = None
-            if mask_filename:
-                mask_path = os.path.join(
-                    self.script_dir, "assets", "seasons", f"{mask_filename}.png"
-                )
-
-            pos_path, neg_path = create_sentiment_wordclouds(
-                aspect_sentiment_pairs=pairs, keyword=festival_name, mask_path=mask_path
-            )
-            if pos_path:
-                seasonal_pos_wc_paths[season] = pos_path
-            if neg_path:
-                seasonal_neg_wc_paths[season] = neg_path
 
         # Generate "What I liked" summary
         positive_keywords_data = await self._generate_positive_keywords_summary(
@@ -478,9 +510,8 @@ class SentimentAnalysisUseCase:
             "blog_list_csv_path": blog_list_csv_path,
             "overall_chart": overall_chart,
             "distribution_chart": distribution_chart_path,
-            "seasonal_charts": seasonal_charts,
-            "seasonal_pos_wc_paths": seasonal_pos_wc_paths,
-            "seasonal_neg_wc_paths": seasonal_neg_wc_paths,
+            "absolute_chart_path": absolute_chart_path,
+            "distribution_description": distribution_description,
             "outlier_chart": outlier_chart_path,
             "total_score_count": len(all_scores),
             "outlier_count": len(outliers),

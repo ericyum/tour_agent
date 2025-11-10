@@ -534,12 +534,29 @@ async def handle_scrape_images(festival_name, num_blogs):
 
 async def handle_analyze_sentiment(festival_name, num_reviews):
     """(기존 핸들러 - 수정 없음)"""
-    outputs_to_clear = (
-        [gr.update(value="")]
-        + [gr.update(visible=False)] * 21
-        + [None, None, None, 1, "/ 1"]
-        + [gr.update(visible=False)] * 5
-    )
+    outputs_to_clear = [
+        gr.update(value=""),  # sentiment_status
+        gr.update(visible=False),  # sentiment_negative_summary
+        gr.update(visible=False),  # sentiment_overall_chart
+        gr.update(visible=False),  # sentiment_distribution_chart
+        gr.update(visible=False),  # sentiment_absolute_chart (new)
+        gr.update(visible=False),  # sentiment_distribution_description
+        gr.update(visible=False),  # outlier_chart
+        gr.update(visible=False),  # outlier_description
+        gr.update(visible=False),  # sentiment_positive_keywords
+        gr.update(visible=False),  # sentiment_summary
+        gr.update(visible=False),  # sentiment_overall_csv
+        pd.DataFrame(),  # sentiment_df_output
+        None,  # blog_results_df_state
+        None,  # blog_judgments_state
+        1,  # sentiment_blog_page_num_input
+        "/ 1",  # sentiment_blog_total_pages_output
+        gr.update(visible=False),  # sentiment_blog_list_csv
+        gr.update(visible=False),  # sentiment_individual_summary
+        gr.update(visible=False),  # sentiment_individual_donut_chart
+        gr.update(visible=False),  # sentiment_individual_score_chart
+        gr.update(visible=False, open=False),  # sentiment_blog_detail_accordion
+    ]
     if not festival_name:
         outputs_to_clear[0] = gr.update(value="축제를 선택해주세요.")
         yield tuple(outputs_to_clear)
@@ -553,10 +570,6 @@ async def handle_analyze_sentiment(festival_name, num_reviews):
         initial_page_df, current_page, total_pages_str = change_page(
             result["blog_df"], 1
         )
-        seasonal_charts = result["seasonal_charts"]
-        seasonal_pos_wc = result["seasonal_pos_wc_paths"]
-        seasonal_neg_wc = result["seasonal_neg_wc_paths"]
-        distribution_description = f"이 분포표는 **{len(result['blog_df'])}**개의 블로그 후기를 분석한 결과입니다..."
         outlier_description = f"총 **{result['total_score_count']}**개의 감성 점수 중 **{result['outlier_count']}**개의 이상치가 발견..."
 
         yield (
@@ -570,7 +583,11 @@ async def handle_analyze_sentiment(festival_name, num_reviews):
                 value=result["distribution_chart"],
                 visible=result["distribution_chart"] is not None,
             ),
-            gr.update(value=distribution_description, visible=True),
+            gr.update(
+                value=result["absolute_chart_path"],
+                visible=result["absolute_chart_path"] is not None,
+            ),
+            gr.update(value=result["distribution_description"], visible=True),
             gr.update(
                 value=result["outlier_chart"],
                 visible=result["outlier_chart"] is not None,
@@ -585,22 +602,6 @@ async def handle_analyze_sentiment(festival_name, num_reviews):
                 value=result["summary_csv_path"],
                 visible=result["summary_csv_path"] is not None,
             ),
-            *[
-                gr.update(value=seasonal_charts.get(s), visible=s in seasonal_charts)
-                for s in ["봄", "여름", "가을", "겨울"]
-            ],
-            *[
-                item
-                for s in ["봄", "여름", "가을", "겨울"]
-                for item in (
-                    gr.update(
-                        value=seasonal_pos_wc.get(s), visible=s in seasonal_pos_wc
-                    ),
-                    gr.update(
-                        value=seasonal_neg_wc.get(s), visible=s in seasonal_neg_wc
-                    ),
-                )
-            ],
             initial_page_df,
             result["blog_df"],
             result["blog_judgments_list"],

@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
 from matplotlib import font_manager, rc
+from matplotlib.ticker import MaxNLocator
 
 def setup_matplotlib_font():
     """한글 폰트를 설정합니다."""
@@ -109,44 +110,76 @@ def create_sentence_score_bar_chart(judgments: list, title: str) -> Figure | Non
 
     return fig
 
-def create_score_distribution_histogram(scores: list, boundaries: dict, title: str) -> Figure | None:
-    if not scores:
+def create_satisfaction_level_bar_chart(satisfaction_counts: dict, title: str) -> Figure | None:
+    """
+    만족도 레벨(5단계)별 문장 수를 막대 그래프로 생성합니다.
+    satisfaction_counts: {'매우 불만족': 10, '불만족': 20, ...} 형태의 딕셔너리
+    """
+    if not satisfaction_counts or sum(satisfaction_counts.values()) == 0:
         return None
+
+    labels = ["매우 불만족", "불만족", "보통", "만족", "매우 만족"]
+    counts = [satisfaction_counts.get(label, 0) for label in labels]
+    
+    colors = {
+        '매우 불만족': '#FF5733',
+        '불만족': '#FF8C33',
+        '보통': '#FFC300',
+        '만족': '#A2D9A0',
+        '매우 만족': '#4CAF50'
+    }
+    bar_colors = [colors[label] for label in labels]
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    # Histogram
-    ax.hist(scores, bins=30, color='skyblue', edgecolor='black', alpha=0.7, label='점수 분포')
-
-    # V-lines for boundaries and mean
-    mean_val = boundaries['mean']
-    ax.axvline(mean_val, color='red', linestyle='--', linewidth=2, label=f'평균: {mean_val:.2f}')
-    
-    boundary_colors = {
-        'very_dissatisfied': '#FF5733',
-        'dissatisfied': '#FF8C33',
-        'neutral': '#FFC300',
-        'satisfied': '#A2D9A0',
-        'very_satisfied': '#4CAF50'
-    }
-    
-    ax.axvline(boundaries['very_dissatisfied_upper'], color=boundary_colors['very_dissatisfied'], linestyle=':', linewidth=2)
-    ax.axvline(boundaries['dissatisfied_upper'], color=boundary_colors['dissatisfied'], linestyle=':', linewidth=2)
-    ax.axvline(boundaries['neutral_upper'], color=boundary_colors['neutral'], linestyle=':', linewidth=2)
-    ax.axvline(boundaries['satisfied_upper'], color=boundary_colors['satisfied'], linestyle=':', linewidth=2)
-
-    # Shading regions
-    ax.axvspan(min(scores), boundaries['very_dissatisfied_upper'], alpha=0.2, color=boundary_colors['very_dissatisfied'], label='매우 불만족')
-    ax.axvspan(boundaries['very_dissatisfied_upper'], boundaries['dissatisfied_upper'], alpha=0.2, color=boundary_colors['dissatisfied'], label='불만족')
-    ax.axvspan(boundaries['dissatisfied_upper'], boundaries['neutral_upper'], alpha=0.2, color=boundary_colors['neutral'], label='보통')
-    ax.axvspan(boundaries['neutral_upper'], boundaries['satisfied_upper'], alpha=0.2, color=boundary_colors['satisfied'], label='만족')
-    ax.axvspan(boundaries['satisfied_upper'], max(scores), alpha=0.2, color=boundary_colors['very_satisfied'], label='매우 만족')
+    bars = ax.bar(labels, counts, color=bar_colors)
 
     ax.set_title(title, fontsize=16, pad=20)
-    ax.set_xlabel('감성 점수', fontsize=12)
+    ax.set_xlabel('만족도', fontsize=12)
     ax.set_ylabel('문장 수', fontsize=12)
-    ax.legend()
     ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+    # 각 막대 위에 문장 수 표시
+    for bar in bars:
+        yval = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2.0, yval, int(yval), va='bottom', ha='center', fontsize=10)
+
+    # Y축을 정수 눈금으로 설정
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+
+    plt.tight_layout()
+    return fig
+
+def create_absolute_score_line_chart(scores: list, title: str) -> Figure | None:
+    """
+    절대적인 고정 점수 구간에 대한 문장 수 분포를 꺾은선 그래프로 생성합니다.
+    """
+    if not scores:
+        return None
+
+    # 고정된 구간(bin) 설정 (사용자 요청에 따라 -2.0 미만, 2.0 초과를 극단값으로 처리)
+    bins = [-np.inf, -2.0, -1.0, 0.0, 1.0, 2.0, np.inf]
+    labels = ['매우 부정 (<-2)', '부정 (-2~-1)', '약간 부정 (-1~0)', '약간 긍정 (0~1)', '긍정 (1~2)', '매우 긍정 (>2)']
+    
+    # 각 구간에 속하는 점수의 개수 계산
+    hist, _ = np.histogram(scores, bins=bins)
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # 꺾은선 그래프 생성
+    ax.plot(labels, hist, marker='o', linestyle='-', color='dodgerblue')
+
+    # 각 점 위에 문장 수 표시
+    for i, count in enumerate(hist):
+        ax.text(i, count, str(count), ha='center', va='bottom', fontsize=10, weight='bold')
+
+    ax.set_title(title, fontsize=16, pad=20)
+    ax.set_xlabel('절대 감성 점수 구간', fontsize=12)
+    ax.set_ylabel('문장 수', fontsize=12)
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    
+    # Y축을 정수 눈금으로 설정
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     
     plt.tight_layout()
     return fig

@@ -50,18 +50,6 @@ def change_page(full_df, page_num):
         traceback.print_exc()
         return pd.DataFrame(), 1, "/ 1"
 
-def get_season(postdate: str) -> str:
-    try:
-        if not postdate or len(postdate) < 6: # 유효성 검사 추가
-             return "정보없음"
-        month = int(postdate[4:6])
-        if month in [3, 4, 5]: return "봄"
-        elif month in [6, 7, 8]: return "여름"
-        elif month in [9, 10, 11]: return "가을"
-        else: return "겨울"
-    except:
-        return "정보없음"
-
 def save_df_to_csv(df: pd.DataFrame, base_name: str, keyword: str) -> str:
     if df is None or df.empty: return None
     try:

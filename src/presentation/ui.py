@@ -305,10 +305,14 @@ def create_ui():
                             sentiment_positive_keywords = gr.HTML(visible=False)
                             with gr.Row():
                                 sentiment_overall_chart = gr.Plot(
-                                    label="전체 후기 요약", visible=False, scale=1
+                                    label="전체 후기 요약 (긍/부정)", visible=False, scale=1
                                 )
+                            with gr.Row():
                                 sentiment_distribution_chart = gr.Image(
-                                    label="만족도 점수 분포", visible=False, scale=1
+                                    label="상대적 만족도 분포 (막대)", visible=False, scale=1
+                                )
+                                sentiment_absolute_chart = gr.Image(
+                                    label="절대 점수 분포 (꺾은선)", visible=False, scale=1
                                 )
                             sentiment_distribution_description = gr.Markdown(
                                 visible=False
@@ -321,63 +325,6 @@ def create_ui():
                             sentiment_negative_summary = gr.Markdown(
                                 label="주요 불만 사항 요약", visible=False
                             )
-                            with gr.Accordion("계절별 상세 분석", open=False):
-                                with gr.Row():
-                                    sentiment_spring_chart = gr.Plot(
-                                        label="봄 시즌", visible=False, scale=1
-                                    )
-                                    sentiment_spring_pos_wc = gr.Image(
-                                        label="봄 긍정 워드클라우드",
-                                        visible=False,
-                                        scale=1,
-                                    )
-                                    sentiment_spring_neg_wc = gr.Image(
-                                        label="봄 부정 워드클라우드",
-                                        visible=False,
-                                        scale=1,
-                                    )
-                                with gr.Row():
-                                    sentiment_summer_chart = gr.Plot(
-                                        label="여름 시즌", visible=False, scale=1
-                                    )
-                                    sentiment_summer_pos_wc = gr.Image(
-                                        label="여름 긍정 워드클라우드",
-                                        visible=False,
-                                        scale=1,
-                                    )
-                                    sentiment_summer_neg_wc = gr.Image(
-                                        label="여름 부정 워드클라우드",
-                                        visible=False,
-                                        scale=1,
-                                    )
-                                with gr.Row():
-                                    sentiment_autumn_chart = gr.Plot(
-                                        label="가을 시즌", visible=False, scale=1
-                                    )
-                                    sentiment_autumn_pos_wc = gr.Image(
-                                        label="가을 긍정 워드클라우드",
-                                        visible=False,
-                                        scale=1,
-                                    )
-                                    sentiment_autumn_neg_wc = gr.Image(
-                                        label="가을 부정 워드클라우드",
-                                        visible=False,
-                                        scale=1,
-                                    )
-                                with gr.Row():
-                                    sentiment_winter_chart = gr.Plot(
-                                        label="겨울 시즌", visible=False, scale=1
-                                    )
-                                    sentiment_winter_pos_wc = gr.Image(
-                                        label="겨울 긍정 워드클라우드",
-                                        visible=False,
-                                        scale=1,
-                                    )
-                                    sentiment_winter_neg_wc = gr.Image(
-                                        label="겨울 부정 워드클라우드",
-                                        visible=False,
-                                        scale=1,
-                                    )
                         gr.Markdown("### 개별 블로그 분석 결과")
                         sentiment_df_output = gr.DataFrame(
                             headers=[
@@ -795,24 +742,13 @@ def create_ui():
                 sentiment_negative_summary,
                 sentiment_overall_chart,
                 sentiment_distribution_chart,
+                sentiment_absolute_chart,
                 sentiment_distribution_description,
                 outlier_chart,
                 outlier_description,
                 sentiment_positive_keywords,
                 sentiment_summary,
                 sentiment_overall_csv,
-                sentiment_spring_chart,
-                sentiment_summer_chart,
-                sentiment_autumn_chart,
-                sentiment_winter_chart,
-                sentiment_spring_pos_wc,
-                sentiment_spring_neg_wc,
-                sentiment_summer_pos_wc,
-                sentiment_summer_neg_wc,
-                sentiment_autumn_pos_wc,
-                sentiment_autumn_neg_wc,
-                sentiment_winter_pos_wc,
-                sentiment_winter_neg_wc,
                 sentiment_df_output,
                 blog_results_df_state,
                 blog_judgments_state,
