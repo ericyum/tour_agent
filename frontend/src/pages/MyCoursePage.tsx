@@ -5,6 +5,8 @@ import { useMutation } from '@tanstack/react-query'
 import { useCourseStore } from '@/store/useCourseStore'
 import { validateCourse, searchNearby } from '@/lib/api'
 import { formatDateRange } from '@/lib/utils'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 export default function MyCoursePage() {
   const { courseItems, removeItem, clearCourse } = useCourseStore()
@@ -237,8 +239,10 @@ export default function MyCoursePage() {
                 <span>🤖</span>
                 <span>AI 코스 검증 결과</span>
               </h2>
-              <div className="prose max-w-none text-slate-700 leading-relaxed whitespace-pre-wrap">
-                {validationResult}
+              <div className="prose max-w-none text-slate-700 leading-relaxed">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {validationResult}
+                </ReactMarkdown>
               </div>
             </motion.div>
           )}

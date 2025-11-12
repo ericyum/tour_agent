@@ -1,3 +1,5 @@
+import traceback
+import re
 # src/application/use_cases/analysis_use_case.py
 
 import os
@@ -40,6 +42,11 @@ class AnalysisUseCase:
         self.cat_to_icon_map = cat_to_icon_map
         self.script_dir = script_dir
         self.okt = Okt()
+
+    def _remove_leading_year(self, festival_name: str) -> str:
+        # Regex to find a four-digit year at the beginning of the string, optionally followed by '년' and a space
+        cleaned_name = re.sub(r"^\d{4}\s*년?\s*", "", festival_name).strip()
+        return cleaned_name if cleaned_name else festival_name # Return original if only year was present or no change
 
     async def generate_trend_graphs(self, festival_name: str):
         if not festival_name:
@@ -265,83 +272,92 @@ class AnalysisUseCase:
         return wc_image, "워드 클라우드 생성 완료"
 
     async def scrape_festival_images(self, festival_name: str, num_blogs: int):
-        if not festival_name:
-            return [], ""
+        try:
+            if not festival_name:
+                return [], ""
 
-        image_save_dir = os.path.join(self.script_dir, "temp_img")
-        if os.path.exists(image_save_dir):
-            shutil.rmtree(image_save_dir)
-        os.makedirs(image_save_dir, exist_ok=True)
+            # Preprocess festival_name to remove leading year
+            processed_festival_name = self._remove_leading_year(festival_name)
+            print(f"Original festival name (images): {festival_name}, Processed: {processed_festival_name}")
 
-        all_image_urls = []
-        start_index = 1
-        max_results_to_scan = 100
-        display_count = 10
-        consecutive_skips = 0
-        found_blogs_with_images = 0
-        target_blog_count = num_blogs
+            image_save_dir = os.path.join(self.script_dir, "temp_img")
+            if os.path.exists(image_save_dir):
+                shutil.rmtree(image_save_dir)
+            os.makedirs(image_save_dir, exist_ok=True)
 
-        while (
-            found_blogs_with_images < target_blog_count
-            and start_index < max_results_to_scan
-        ):
-            blog_reviews = search_naver_blog(
-                f"{festival_name} 후기", display=display_count, start=start_index
-            )
-            if not blog_reviews:
-                break
+            all_image_urls = []
+            start_index = 1
+            max_results_to_scan = 100
+            display_count = 10
+            consecutive_skips = 0
+            found_blogs_with_images = 0
+            target_blog_count = num_blogs
 
-            for review in blog_reviews:
-                if found_blogs_with_images >= target_blog_count:
+            while (
+                found_blogs_with_images < target_blog_count
+                and start_index < max_results_to_scan
+            ):
+                blog_reviews = search_naver_blog(
+                    f"{processed_festival_name} 후기", display=display_count, start=start_index
+                )
+                if not blog_reviews:
                     break
-                if consecutive_skips >= 3:
-                    break
 
-                link = review.get("link")
-                if link and "blog.naver.com" in link:
-                    text_content, image_urls = (
-                        await self.naver_supervisor._scrape_blog_content(link)
-                    )
-                    if (
-                        text_content
-                        and "본문 내용을 찾을 수 없습니다" not in text_content
-                        and image_urls
-                    ):
-                        is_relevant = await self.naver_supervisor._is_relevant_review(
-                            festival_name, review.get("title", ""), text_content
+                for review in blog_reviews:
+                    if found_blogs_with_images >= target_blog_count:
+                        break
+                    if consecutive_skips >= 3:
+                        break
+
+                    link = review.get("link")
+                    if link and "blog.naver.com" in link:
+                        text_content, image_urls = (
+                            await self.naver_supervisor._scrape_blog_content(link)
                         )
-                        if is_relevant:
-                            all_image_urls.extend(image_urls)
-                            found_blogs_with_images += 1
-                            consecutive_skips = 0
+                        if (
+                            text_content
+                            and "본문 내용을 찾을 수 없습니다" not in text_content
+                            and image_urls
+                        ):
+                            is_relevant = await self.naver_supervisor._is_relevant_review(
+                                processed_festival_name, review.get("title", ""), text_content
+                            )
+                            if is_relevant:
+                                all_image_urls.extend(image_urls)
+                                found_blogs_with_images += 1
+                                consecutive_skips = 0
+                            else:
+                                consecutive_skips += 1
                         else:
                             consecutive_skips += 1
                     else:
                         consecutive_skips += 1
-                else:
-                    consecutive_skips += 1
 
-            if consecutive_skips >= 3:
-                break
+                if consecutive_skips >= 3:
+                    break
 
-            start_index += display_count
+                start_index += display_count
 
-        local_image_paths = []
-        for i, img_url in enumerate(all_image_urls):
-            try:
-                response = requests.get(img_url, stream=True, timeout=10)
-                response.raise_for_status()
-                file_ext = os.path.splitext(img_url.split("?")[0])[-1]
-                if not file_ext or len(file_ext) > 5:
-                    file_ext = ".jpg"
-                file_name = f"image_{i+1}{file_ext}"
-                file_path = os.path.join(image_save_dir, file_name)
-                with open(file_path, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                local_image_paths.append(file_path)
-            except requests.exceptions.RequestException as e:
-                print(f"이미지 다운로드 실패: {img_url}, 오류: {e}")
-                continue
+            local_image_paths = []
+            for i, img_url in enumerate(all_image_urls):
+                try:
+                    response = requests.get(img_url, stream=True, timeout=10)
+                    response.raise_for_status()
+                    file_ext = os.path.splitext(img_url.split("?")[0])[-1]
+                    if not file_ext or len(file_ext) > 5:
+                        file_ext = ".jpg"
+                    file_name = f"image_{i+1}{file_ext}"
+                    file_path = os.path.join(image_save_dir, file_name)
+                    with open(file_path, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                    local_image_paths.append(file_path)
+                except requests.exceptions.RequestException as e:
+                    print(f"이미지 다운로드 실패: {img_url}, 오류: {e}")
+                    continue
 
-        return local_image_paths, "\n".join(all_image_urls)
+            return local_image_paths, "\n".join(all_image_urls)
+        except Exception as e:
+            print(f"Error in scrape_festival_images: {e}")
+            traceback.print_exc()
+            return [], f"Error during image scraping: {e}"

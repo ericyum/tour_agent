@@ -257,11 +257,23 @@ class SentimentAnalysisUseCase:
         else:
             return 5  # 매우 만족
 
+    def _remove_leading_year(self, festival_name: str) -> str:
+        # Regex to find a four-digit year at the beginning of the string, optionally followed by '년' and a space
+        # e.g., "2025 국민고향 남해 마시고 RUN 후기" -> "국민고향 남해 마시고 RUN 후기"
+        # e.g., "2024년 서울 불꽃축제" -> "서울 불꽃축제"
+        # e.g., "2023-2024 겨울 축제" -> "2024 겨울 축제" (only removes the first year if followed by space)
+        cleaned_name = re.sub(r"^\d{4}\s*년?\s*", "", festival_name).strip()
+        return cleaned_name if cleaned_name else festival_name # Return original if only year was present or no change
+
     async def analyze_sentiment(self, festival_name: str, num_reviews: int):
         if not festival_name:
             raise ValueError("축제를 선택해주세요.")
 
-        search_keyword = f"{festival_name} 후기"
+        # Preprocess festival_name to remove leading year
+        processed_festival_name = self._remove_leading_year(festival_name)
+        print(f"Original festival name: {festival_name}, Processed: {processed_festival_name}")
+
+        search_keyword = f"{processed_festival_name} 후기"
 
         blog_results_list = []
         blog_judgments_list = []
@@ -307,7 +319,7 @@ class SentimentAnalysisUseCase:
                     final_state = app_llm_graph.invoke(
                         {
                             "original_text": content,
-                            "keyword": festival_name,
+                            "keyword": processed_festival_name,
                             "title": re.sub(r"<[^>]+>", "", blog_data["title"]).strip(),
                             "log_details": True,
                         }

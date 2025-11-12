@@ -15,10 +15,23 @@ class NaverReviewAgent:
     def __init__(self):
         self.llm = get_llm_client()  # Initialize LLM client
 
+    def _remove_leading_year(self, festival_name: str) -> str:
+        # Regex to find a four-digit year at the beginning of the string, optionally followed by '년' and a space
+        cleaned_name = re.sub(r"^\d{4}\s*년?\s*", "", festival_name).strip()
+        return (
+            cleaned_name if cleaned_name else festival_name
+        )  # Return original if only year was present or no change
+
     async def get_review_summary_and_tips(
         self, festival_name, num_reviews=5, return_full_text=False, return_meta=False
     ):
-        search_query = f"{festival_name} 후기"
+        # Preprocess festival_name to remove leading year
+        processed_festival_name = self._remove_leading_year(festival_name)
+        print(
+            f"Original festival name: {festival_name}, Processed: {processed_festival_name}"
+        )
+
+        search_query = f"{processed_festival_name} 후기"
         print(f"Searching Naver blogs for reviews of '{search_query}'...")
 
         reviews_with_content = []
@@ -58,9 +71,14 @@ class NaverReviewAgent:
                         and "본문 내용을 찾을 수 없습니다" not in text_content
                         and "페이지에 접근하는 중 오류" not in text_content
                     ):
+                        # --- 여기 들여쓰기를 수정했습니다 ---
                         is_relevant = await self._is_relevant_review(
-                            festival_name, review_meta.get("title", ""), text_content
+                            processed_festival_name,
+                            review_meta.get("title", ""),
+                            text_content,
                         )
+                        # --- 여기까지 ---
+
                         if is_relevant:
                             print(
                                 f"DEBUG: Scraped content for '{review_meta.get('title')}': {text_content[:200]}..."
@@ -79,6 +97,7 @@ class NaverReviewAgent:
                             )
                             consecutive_skips += 1
                     else:
+                        # 이 부분은 이제 정상입니다.
                         print(
                             f"DEBUG: Failed to scrape content for '{review_meta.get('title')}' or content was empty/error. Skipping."
                         )
@@ -89,8 +108,7 @@ class NaverReviewAgent:
             if should_stop_fetching:  # Check flag to break outer while loop
                 break
 
-            start_index += display_count
-
+            # <<< 2. 중복 코드 제거 (start_index 증가가 두 번 있었음) >>>
             start_index += display_count
 
         if not reviews_with_content:
@@ -104,7 +122,7 @@ class NaverReviewAgent:
                 return "", full_texts
 
         llm_generated_summary, _ = await self._llm_summarize_reviews(
-            festival_name, reviews_with_content
+            processed_festival_name, reviews_with_content
         )
         return llm_generated_summary, llm_generated_summary
 
@@ -299,7 +317,7 @@ class NaverReviewAgent:
 [여기에 내용 요약]
 
 행사장 분위기 (BGM, 조명 등)
-[여기에 내용 요약]
+[여기에 내용 요요약]
 
 어르신/장애인 접근성
 [여기에 내용 요약]
