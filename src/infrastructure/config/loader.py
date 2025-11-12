@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import pandas as pd
 import sqlite3
 from matplotlib import font_manager
@@ -101,18 +102,107 @@ def get_korean_font():
 
 
 def load_festival_info_lookup():
-    """Loads the precaution info from the classification CSV."""
+    """Loads the precaution info from the classification CSV and DB info."""
+    festival_info = {}
+    csv_precautions = {}
+
+    # Load from CSV
     try:
         csv_path = os.path.join(PROJECT_ROOT, "festival_final_classification.csv")
-        df = pd.read_csv(csv_path)
-        return df.set_index("festival_name")[
-            ["detailed_category", "prohibited_behaviors"]
-        ].to_dict("index")
+        # encoding_sig handles BOM automatically
+        df = pd.read_csv(csv_path, encoding='utf-8-sig')
+
+        # Strip whitespace from festival names
+        df['festival_name'] = df['festival_name'].str.strip()
+
+        # Store CSV data separately for matching
+        for _, row in df.iterrows():
+            csv_name = row['festival_name']
+            # Handle NaN values
+            detailed_cat = row['detailed_category'] if pd.notna(row['detailed_category']) else ""
+            prohibited = row['prohibited_behaviors'] if pd.notna(row['prohibited_behaviors']) else ""
+
+            csv_precautions[csv_name] = {
+                "detailed_category": detailed_cat,
+                "prohibited_behaviors": prohibited
+            }
+
+        print(f"[Loader] Loaded {len(csv_precautions)} festivals from CSV for precautions")
     except FileNotFoundError:
         print(
             "Warning: festival_final_classification.csv not found. Precaution feature will be disabled."
         )
-        return {}
+    except Exception as e:
+        print(f"Error loading festival_final_classification.csv: {e}")
+
+    # Load from DB and match with CSV
+    db_path = os.path.join(PROJECT_ROOT, "tour.db")
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT title, eventstartdate, eventenddate, addr1, tel, homepage, mapx, mapy, contentid FROM festivals"
+        )
+        db_festivals = cursor.fetchall()
+        conn.close()
+
+        matched_count = 0
+        for row in db_festivals:
+            db_title = row[0]
+            if db_title:
+                db_title = db_title.strip()
+
+                # Initialize entry with DB info
+                festival_info[db_title] = {
+                    "eventstartdate": row[1],
+                    "eventenddate": row[2],
+                    "addr1": row[3],
+                    "tel": row[4],
+                    "homepage": row[5],
+                    "mapx": row[6],
+                    "mapy": row[7],
+                    "contentid": row[8],
+                }
+
+                # Try to match with CSV data
+                # First try exact match
+                if db_title in csv_precautions:
+                    festival_info[db_title].update(csv_precautions[db_title])
+                    matched_count += 1
+                else:
+                    # Try partial match (remove year prefix)
+                    # e.g., "2023 제20회 축제" -> "제20회 축제"
+                    # Remove leading year pattern (e.g., "2023 ", "2024 ")
+                    title_without_year = re.sub(r'^\d{4}\s+', '', db_title)
+
+                    if title_without_year != db_title and title_without_year in csv_precautions:
+                        festival_info[db_title].update(csv_precautions[title_without_year])
+                        matched_count += 1
+                        # Debug log for first 5 matches
+                        if matched_count <= 5:
+                            print(f"[Loader] Matched (year removed): '{db_title}' -> '{title_without_year}'")
+                    else:
+                        # Try matching by checking if CSV name is contained in DB name
+                        matched_in_substring = False
+                        for csv_name, csv_data in csv_precautions.items():
+                            # Check if CSV name is a substring of DB name (ignoring case)
+                            if csv_name in db_title or db_title.replace(' ', '') == csv_name.replace(' ', ''):
+                                festival_info[db_title].update(csv_data)
+                                matched_count += 1
+                                matched_in_substring = True
+                                # Debug log for first 5 matches
+                                if matched_count <= 5:
+                                    print(f"[Loader] Matched (substring): '{db_title}' contains '{csv_name}'")
+                                break
+
+        print(f"[Loader] Matched {matched_count} festivals with CSV precautions")
+        print(f"[Loader] Total festivals in lookup: {len(festival_info)}")
+    except Exception as e:
+        print(f"Error loading festival info from database: {e}")
+        import traceback
+        traceback.print_exc()
+
+    return festival_info
 
 
 # --- [ 신규 추가된 함수 ] ---

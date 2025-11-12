@@ -19,3 +19,6 @@ geopy==2.4.1
 nest_asyncio==1.6.0
 google-generativeai
 rembg
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+konlpy==0.6.0

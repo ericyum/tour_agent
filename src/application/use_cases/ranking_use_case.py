@@ -380,7 +380,7 @@ class RankingUseCase:
         places_list: list,
         num_reviews: int,
         top_n: int,
-        progress,
+        progress=None,
         is_course: bool = False,
     ):
         if not places_list:
@@ -486,10 +486,15 @@ class RankingUseCase:
 
         tasks = [process_place(p) for p in places_list]
         ranked_places = []
-        for task in progress.tqdm(
-            asyncio.as_completed(tasks), total=len(tasks), desc="장소 점수 계산 중"
-        ):
-            ranked_places.append(await task)
+
+        # Use progress if available (Gradio), otherwise just gather tasks
+        if progress:
+            for task in progress.tqdm(
+                asyncio.as_completed(tasks), total=len(tasks), desc="장소 점수 계산 중"
+            ):
+                ranked_places.append(await task)
+        else:
+            ranked_places = await asyncio.gather(*tasks)
 
         ranked_places.sort(key=lambda x: x.get("ranking_score", 0), reverse=True)
         gallery_output = [
@@ -561,7 +566,7 @@ class RankingUseCase:
         return score
 
     async def rank_festivals(
-        self, festivals_list: list, num_reviews: int, top_n: int, progress
+        self, festivals_list: list, num_reviews: int, top_n: int, progress=None
     ):
         if not festivals_list:
             return [], ""
@@ -612,10 +617,15 @@ class RankingUseCase:
 
         tasks = [process_festival(f) for f in festivals_list]
         ranked_festivals = []
-        for task in progress.tqdm(
-            asyncio.as_completed(tasks), total=len(tasks), desc="축제 순위 계산 중"
-        ):
-            ranked_festivals.append(await task)
+
+        # Use progress if available (Gradio), otherwise just gather tasks
+        if progress:
+            for task in progress.tqdm(
+                asyncio.as_completed(tasks), total=len(tasks), desc="축제 순위 계산 중"
+            ):
+                ranked_festivals.append(await task)
+        else:
+            ranked_festivals = await asyncio.gather(*tasks)
 
         ranked_festivals.sort(key=lambda x: x.get("ranking_score", 0), reverse=True)
 

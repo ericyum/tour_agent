@@ -225,6 +225,10 @@ class SentimentAnalysisUseCase:
         mean = np.mean(filtered_scores)
         std = np.std(filtered_scores)
 
+        # Handle case where all scores are identical
+        if np.isclose(std, 0):
+            std = 0.1
+
         boundaries = {
             "mean": mean,
             "std": std,
@@ -401,8 +405,8 @@ class SentimentAnalysisUseCase:
                 {
                     "블로그 제목": blog["블로그 제목"],
                     "링크": blog["링크"],
-                    "만족도 점수": f"{avg_satisfaction:.2f} / 5",
                     "감성 빈도": len(judgments),
+                    "감성 점수": f"{avg_satisfaction:.2f} / 5",
                     "긍정 문장 수": pos_count,
                     "부정 문장 수": neg_count,
                     "긍정 비율 (%)": f"{pos_perc:.1f}",
@@ -413,6 +417,7 @@ class SentimentAnalysisUseCase:
                             for j in judgments
                         ]
                     ),
+                    "만족도 점수": f"{avg_satisfaction:.2f} / 5",  # Keep for backwards compatibility
                 }
             )
 
@@ -426,49 +431,53 @@ class SentimentAnalysisUseCase:
             [level_map.get(level, "보통") for level in all_satisfaction_levels]
         )
         
-        distribution_chart_path = None
+        distribution_chart_fig = None
         if all_satisfaction_levels:
             fig = create_satisfaction_level_bar_chart(
                 satisfaction_counts, f"{festival_name} 상대적 만족도 분포"
             )
             if fig:
+                distribution_chart_fig = fig
+                # Save for debugging/legacy use if needed, but don't close
                 distribution_chart_path = os.path.join(
                     self.script_dir, "temp_img", f"dist_chart_{festival_name}.png"
                 )
                 os.makedirs(os.path.dirname(distribution_chart_path), exist_ok=True)
                 fig.savefig(distribution_chart_path)
-                plt.close(fig)
+                # plt.close(fig) # Removed to pass fig object
 
-        absolute_chart_path = None
+        absolute_chart_fig = None
         if all_scores:
             fig = create_absolute_score_line_chart(
                 all_scores, f"{festival_name} 절대 점수 분포"
             )
             if fig:
+                absolute_chart_fig = fig
                 absolute_chart_path = os.path.join(
                     self.script_dir, "temp_img", f"abs_chart_{festival_name}.png"
                 )
                 os.makedirs(os.path.dirname(absolute_chart_path), exist_ok=True)
                 fig.savefig(absolute_chart_path)
-                plt.close(fig)
+                # plt.close(fig) # Removed to pass fig object
 
         distribution_description = await self._generate_distribution_interpretation(
             satisfaction_counts, len(all_satisfaction_levels), boundaries, overall_avg_satisfaction
         )
         # --- End New ---
 
-        outlier_chart_path = None
+        outlier_chart_fig = None
         if all_scores:
             fig = create_outlier_boxplot(
                 all_scores, f"{festival_name} 감성 점수 이상치"
             )
             if fig:
+                outlier_chart_fig = fig
                 outlier_chart_path = os.path.join(
                     self.script_dir, "temp_img", f"outlier_chart_{festival_name}.png"
                 )
                 os.makedirs(os.path.dirname(outlier_chart_path), exist_ok=True)
                 fig.savefig(outlier_chart_path)
-                plt.close(fig)
+                # plt.close(fig) # Removed to pass fig object
 
         neg_summary_text = summarize_negative_feedback(all_negative_sentences)
         overall_summary_text = f"- **총 분석 블로그**: {len(blog_results_list)}개\n- **전체 평균 만족도**: {overall_avg_satisfaction:.2f} / 5.0 점\n- **긍정 문장 수**: {total_pos}개\n- **부정 문장 수**: {total_neg}개"
@@ -500,6 +509,46 @@ class SentimentAnalysisUseCase:
             positive_keywords_data, len(blog_results_list)
         )
 
+        print(f"DEBUG: all_aspect_sentiment_pairs: {all_aspect_sentiment_pairs}") # DEBUG PRINT
+
+        # Prepare chart data for frontend rendering
+        donut_data = {
+            "positive": total_pos,
+            "negative": total_neg,
+        }
+
+        satisfaction_data = {
+            "labels": ["매우 불만족", "불만족", "보통", "만족", "매우 만족"],
+            "counts": [satisfaction_counts.get(label, 0) for label in ["매우 불만족", "불만족", "보통", "만족", "매우 만족"]],
+        }
+
+        # Prepare absolute score distribution data
+        bins = [-np.inf, -2.0, -1.0, 0.0, 1.0, 2.0, np.inf]
+        labels_abs = ['매우 부정 (<-2)', '부정 (-2~-1)', '약간 부정 (-1~0)', '약간 긍정 (0~1)', '긍정 (1~2)', '매우 긍정 (>2)']
+        hist, _ = np.histogram(all_scores, bins=bins) if all_scores else (np.zeros(len(labels_abs)), None)
+        absolute_data = {
+            "labels": labels_abs,
+            "counts": hist.tolist(),
+        }
+
+        # Prepare outlier data
+        q1 = np.percentile(all_scores, 25) if all_scores else 0
+        q3 = np.percentile(all_scores, 75) if all_scores else 0
+        iqr = q3 - q1
+        lower_bound = q1 - 1.5 * iqr
+        upper_bound = q3 + 1.5 * iqr
+        median = np.median(all_scores) if all_scores else 0
+        outlier_data = {
+            "min": float(np.min(all_scores)) if all_scores else 0,
+            "q1": float(q1),
+            "median": float(median),
+            "q3": float(q3),
+            "max": float(np.max(all_scores)) if all_scores else 0,
+            "lower_bound": float(lower_bound),
+            "upper_bound": float(upper_bound),
+            "outliers": [float(s) for s in all_scores if s < lower_bound or s > upper_bound] if all_scores else [],
+        }
+
         return {
             "positive_keywords_html": positive_keywords_html,
             "neg_summary_text": neg_summary_text,
@@ -509,10 +558,16 @@ class SentimentAnalysisUseCase:
             "blog_judgments_list": blog_judgments_list,
             "blog_list_csv_path": blog_list_csv_path,
             "overall_chart": overall_chart,
-            "distribution_chart": distribution_chart_path,
-            "absolute_chart_path": absolute_chart_path,
+            "distribution_chart": distribution_chart_fig,
+            "absolute_chart": absolute_chart_fig,
             "distribution_description": distribution_description,
-            "outlier_chart": outlier_chart_path,
+            "outlier_chart": outlier_chart_fig,
             "total_score_count": len(all_scores),
             "outlier_count": len(outliers),
+            "all_aspect_sentiment_pairs": all_aspect_sentiment_pairs,
+            # Chart data for frontend
+            "donut_data": donut_data,
+            "satisfaction_data": satisfaction_data,
+            "absolute_data": absolute_data,
+            "outlier_data": outlier_data,
         }

@@ -17,3 +17,35 @@ __pycache__/
 *.gif
 *.do
 *.es
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Diagnostic reports (https://nodejs.org/api/report.html)
+.report/
+
+# Node.js
+# Attention: If you're using the `native-image` or `electron` packages, then you might need to remove `*.node` from this file.
+node_modules/
+dist/
+dist-ssr/
+*.local
+*.build
+*.tgz
+.vite/
+.cache/
+.temp/
+.tmp/
+.DS_Store
+.env
+.env.local
+.env.*.local
+.vscode/
+coverage/
+build/

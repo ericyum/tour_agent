@@ -87,13 +87,20 @@ def create_sentiment_wordclouds(aspect_sentiment_pairs: list, keyword: str, mask
                     negative_scores[aspect] += abs(representative_score)
         
         mask_array = None
-        if mask_path and os.path.exists(mask_path):
-            try:
-                img = Image.open(mask_path).convert("L")
-                mask_array = np.array(img, dtype=np.uint8)
-            except Exception as e:
-                print(f"[WordCloud] Error loading mask image: {e}")
-                mask_array = None
+        if mask_path:
+            print(f"[WordCloud] Attempting to load mask from: {mask_path}")
+            if os.path.exists(mask_path):
+                try:
+                    img = Image.open(mask_path).convert("L")
+                    mask_array = np.array(img, dtype=np.uint8)
+                    print(f"[WordCloud] Mask loaded successfully! Shape: {mask_array.shape}")
+                except Exception as e:
+                    print(f"[WordCloud] Error loading mask image: {e}")
+                    mask_array = None
+            else:
+                print(f"[WordCloud] Mask file does not exist at: {mask_path}")
+        else:
+            print(f"[WordCloud] No mask_path provided, using default square shape")
 
         common_wc_args = {
             "font_path": font_path, "width": 800, "height": 800,
