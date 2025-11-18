@@ -169,6 +169,7 @@ graph TD
 ├── app.py                  # 🔵 Presentation: 메인 실행 파일 (Gradio UI)
 ├── requirements.txt
 ├── tour.db                 # 🟢 Infrastructure: SQLite 데이터베이스
+├── 2025년 새싹 해커톤 AI 서비스 기획서 양식_최종.docx  # 📝 새싹 해커톤 신청서
 ├── assets/                 # 🔵 Presentation: 정적 자산 (이미지, 마스크 등)
 ├── database/               # 🟢 Infrastructure: DB 초기화용 CSV
 ├── dic/                    # 🟡 Domain: 감성 분석용 사전 (형용사, 부사, 명사 등)
