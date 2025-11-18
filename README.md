@@ -247,4 +247,4 @@ python app.py
 ## 🏗️ 시연영상
 
 **시연영상**:  
-https://drive.google.com/file/d/19D9HeH2N8BTknLEyqTic9K5RqgPYc-d-/view?usp=sharing  
+https://drive.google.com/file/d/19p36hZKksQczgAepus1-n4y4W_z3rrlf/view?usp=sharing
