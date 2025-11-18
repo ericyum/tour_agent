@@ -3,6 +3,9 @@
 > "축제의 순간을 AI로 재해석하다"
 > 
 > **Team FestMoment** | 염정운, 최가윤
+>
+> <img width="1053" height="463" alt="image" src="https://github.com/user-attachments/assets/743d8ee0-4b03-4a41-8b42-dc503ccf5ad4" />
+
 
 **FestMoment**는 전국의 축제 데이터를 기반으로, LLM과 Vision 모델을 활용해 ‘AI 축제 가이드’를 생성하는 서비스입니다. 기존의 축제 정보 서비스가 일정과 위치 등 정형적인 정보 제공에 그쳤다면, FestMoment는 블로그 후기, 검색량 트렌드, 현장 이미지 등 비정형 데이터 속에 담긴 **감성**에 주목합니다.
 
