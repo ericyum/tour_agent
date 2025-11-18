@@ -1,4 +1,4 @@
-# FestMoment: AI 축제 가이드 🤖✨
+# 새싹 해커톤 FestMoment: AI 축제 가이드 🤖✨
 
 > "축제의 순간을 AI로 재해석하다"
 > 
