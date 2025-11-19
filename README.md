@@ -602,7 +602,6 @@ tour_agent/
 ├── 📂 festivals/                       # 축제 카테고리 JSON
 ├── 📂 assets/                          # 정적 자산 (워드클라우드 마스크 등)
 ├── 📂 best_images_and_icons/          # 축제별 대표 이미지 및 아이콘
-└── 📂 archive_gradio/                  # 기존 Gradio UI 백업
 ```
 
 ---
