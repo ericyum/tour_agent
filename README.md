@@ -37,9 +37,8 @@
 9. [📁 프로젝트 구조](#-프로젝트-구조-클린-아키텍처)
 10. [💡 기대 효과](#-기대-효과-및-가치)
 11. [🎬 시연영상](#-시연영상)
-12. [⚠️ 문제 해결](#️-문제-해결-troubleshooting)
-13. [🤝 기여하기](#-기여하기)
-14. [📄 라이선스](#-라이선스)
+12. [🤝 기여하기](#-기여하기)
+13. [📄 라이선스](#-라이선스)
 
 ---
 
@@ -239,7 +238,6 @@ graph LR
 ```
 ┌─────────────────────────────────────────┐
 │   사용자 인터페이스                      │
-│   ├─ Gradio UI (Port 7860)             │
 │   └─ React Frontend (Port 3000)        │
 └────────────────┬────────────────────────┘
                  │ HTTP/REST API
@@ -378,7 +376,6 @@ graph TD
 | **언어** | Python | 3.11+ | 백엔드 핵심 언어 |
 | **웹 프레임워크** | FastAPI | 0.115.0 | REST API 서버 |
 | | Uvicorn | 0.32.0 | ASGI 웹 서버 |
-| | Gradio | 5.49.1 | UI 프레임워크 (레거시) |
 | **AI 프레임워크** | LangGraph | 1.0.1 | 계층적 에이전트 아키텍처 |
 | | LangChain | - | LLM 프롬프트 관리 |
 | **LLM** | Google Gemini Pro | - | 감성 분석, 요약, 랭킹 |
@@ -428,180 +425,63 @@ graph TD
 
 ## 📋 2025년 새싹 해커톤 신청서
 
-> **🎯 프로젝트 기획서 및 상세 제안서**
-
 본 프로젝트는 **2025년 새싹 해커톤**에 제출된 AI 서비스입니다.
 
-### 📄 신청서 파일
-
-**파일명**: [`2025년 새싹 해커톤 AI 서비스 기획서 양식_최종.docx`](./2025년%20새싹%20해커톤%20AI%20서비스%20기획서%20양식_최종.docx)
-
-### 📋 신청서 주요 내용
-
-#### 1. 📝 서비스 기획 배경 및 목적
-- **문제 정의**: 기존 축제 정보 서비스의 한계 (정형 데이터 중심, 감성 부재)
-- **솔루션**: AI 기반 감성 분석 + Vision 렌더링 융합
-- **목표**: 축제의 순간을 데이터로 재해석하여 생생한 경험 제공
-
-#### 2. 🎯 핵심 기능 및 차별점
-- **하이브리드 감성 분석**: 규칙 기반 + LLM 기반 결합
-- **자가 교정 피드백 루프**: LangGraph 기반 에이전트 시스템
-- **동적 학습 감성 사전**: 신조어 자동 학습 및 사전 확장
-- **AI 시각화**: 영화 포스터 스타일 렌더링, 계절/시간대별 이미지 생성
-
-#### 3. 🛠️ 기술 스택 상세 설명
-- **LangGraph**: 계층적 에이전트 아키텍처로 복잡한 워크플로우 관리
-- **Google Gemini**: Pro (분석), Flash (빠른 응답), Vision (이미지 분석), 2.5 Flash (이미지 생성)
-- **IQR 통계**: 이상치 필터링으로 객관성 확보
-- **React + FastAPI**: 현대적 웹 기술 스택
-
-#### 4. 📊 예상 기대 효과 및 사업화 방안
-
-**사회적 효과**:
-- AI가 한국의 문화유산을 시각적으로 재해석하여 외국인 관광객에게 감정적 경험 제공
-- 축제의 감성을 데이터로 보존하여 문화 아카이빙
-
-**경제적 효과**:
-- 데이터 기반 효과적인 축제 홍보 → 관광객 방문 유도
-- 서울 경제 활성화 기여
-
-**기술적 가치**:
-- 공공과 민간 데이터 융합 모델 제시
-- LangGraph 기반 자율 에이전트 시스템의 새로운 표준 제시
-
-#### 5. 👥 팀 구성 및 역할 분담
-
-**Team FestMoment**
-- **염정운**: 백엔드 개발, LangGraph 아키텍처, AI 모델 통합
-- **최가윤**: 프론트엔드 개발, UI/UX 디자인, 데이터 시각화
+**기획서 위치**: 프로젝트 루트 디렉토리의 [`2025년 새싹 해커톤 AI 서비스 기획서 양식_최종.docx`](./2025년%20새싹%20해커톤%20AI%20서비스%20기획서%20양식_최종.docx) 파일에서 상세 내용을 확인하실 수 있습니다.
 
 ---
 
 ## 🚀 빠른 시작
 
-FestMoment는 **두 가지 UI 버전**을 제공합니다:
-1. **Gradio UI** (레거시, 빠른 프로토타이핑용)
-2. **React Frontend** (프로덕션, 모던 웹 UI)
-
 ### 📋 사전 준비
 
-#### 시스템 요구사항
-- **Python**: 3.11 이상 권장
-- **Node.js**: 18.0 이상 (React UI 사용 시)
-- **npm**: 9.0 이상
+- **Python** 3.11 이상
+- **Node.js** 18.0 이상, **npm** 9.0 이상
+- **API 키**: Google Gemini, Naver Search, Naver DataLab (선택: Google Maps)
 
-#### API 키 발급
+### ⚡ 실행 방법
 
-필수 API 키:
-
-1. **Google Gemini API Key**
-   - [Google AI Studio](https://aistudio.google.com/)에서 발급
-
-2. **Naver Search API**
-   - [Naver Developers](https://developers.naver.com/) → "검색" API 선택
-   - Client ID, Secret 발급
-
-3. **Naver Trend API**
-   - [Naver Developers](https://developers.naver.com/) → "데이터랩" API 선택
-   - 별도 앱 등록 필요
-
-4. **Google Maps API** (옵션, AI 렌더링용)
-   - [Google Cloud Console](https://console.cloud.google.com/) → Static Maps API 활성화
-
-### ⚡ Option 1: Gradio UI (레거시)
-
-#### Step 1: 프로젝트 클론
+#### 1. 의존성 설치
 
 ```bash
-git clone <repository-url>
-cd tour_agent
-```
-
-#### Step 2: 가상환경 생성 및 활성화
-
-```bash
-# Windows
+# Python 가상환경 생성 및 활성화
 python -m venv venv
-venv\Scripts\activate
+venv\Scripts\activate  # Windows
+# source venv/bin/activate  # macOS/Linux
 
-# macOS/Linux
-python -m venv venv
-source venv/bin/activate
-```
-
-#### Step 3: 의존성 설치
-
-```bash
+# Python 패키지 설치
 pip install -r requirements.txt
+
+# 프론트엔드 의존성 설치
+cd frontend
+npm install
+cd ..
 ```
 
-#### Step 4: 환경 변수 설정
+#### 2. 환경 변수 설정
 
 프로젝트 루트에 `.env` 파일 생성:
 
 ```env
-# Google Gemini API Key
 GOOGLE_API_KEY=your_google_gemini_api_key
-
-# Naver API Keys for Blog Search
 NAVER_CLIENT_ID=your_naver_client_id
 NAVER_CLIENT_SECRET=your_naver_client_secret
-
-# Naver API Keys for DataLab Trend
 NAVER_TREND_CLIENT_ID=your_naver_trend_client_id
 NAVER_TREND_CLIENT_SECRET=your_naver_trend_client_secret
-
-# Google Maps API Key (옵션)
-GEMINI_MAPS_KEY=your_google_maps_key
 ```
 
-#### Step 5: 데이터베이스 초기화
+#### 3. 서버 실행
 
 ```bash
-# app.py 실행 시 자동 초기화됨
-# 또는 직접 초기화:
-python -c "from src.infrastructure.persistence.database import init_db; init_db()"
-```
-
-#### Step 6: Gradio UI 실행
-
-```bash
-python app.py
-```
-
-✅ **실행 확인**: 브라우저에서 `http://127.0.0.1:7860` 접속
-
-### ⚡ Option 2: React Frontend (권장)
-
-#### 1️⃣ 백엔드 서버 실행 (터미널 1)
-
-```bash
-# 프로젝트 루트에서
+# 터미널 1: 백엔드 서버 (http://localhost:8000)
 python api_server.py
-```
 
-✅ **실행 확인**:
-- Health Check: http://localhost:8000
-- API 문서: http://localhost:8000/docs
-
-#### 2️⃣ 프론트엔드 실행 (터미널 2)
-
-```bash
-# frontend 폴더로 이동
+# 터미널 2: 프론트엔드 서버 (http://localhost:3000)
 cd frontend
-
-# 최초 1회만 실행 (의존성 설치)
-npm install
-
-# 개발 서버 시작
 npm run dev
 ```
 
-✅ **실행 확인**: http://localhost:3000
-
-#### 3️⃣ 브라우저 접속
-
-웹 브라우저에서 **http://localhost:3000** 접속! 🎉
+✅ 웹 브라우저에서 **http://localhost:3000** 접속!
 
 ---
 
@@ -609,7 +489,6 @@ npm run dev
 
 ```
 tour_agent/
-├── 📄 app.py                           # Gradio UI 메인 실행 파일
 ├── 📄 api_server.py                    # FastAPI 백엔드 서버
 ├── 📄 requirements.txt                 # Python 의존성
 ├── 📄 .env                             # 환경 변수 (git ignore)
@@ -678,10 +557,6 @@ tour_agent/
 │   │   ├── dynamic_scorer.py           # 동적 감성 점수 계산
 │   │   └── llm_client.py               # Google Gemini LLM 클라이언트
 │   │
-│   └── 📂 presentation/                # 🔵 Presentation Layer (Gradio)
-│       ├── callbacks.py                # UI 콜백 (드롭다운 연동)
-│       ├── event_handlers.py           # UI 이벤트 핸들러
-│       └── ui.py                       # Gradio UI 컴포넌트
 │
 ├── 📂 frontend/                        # React 프론트엔드 ⭐
 │   ├── 📂 src/
@@ -776,138 +651,6 @@ https://drive.google.com/file/d/19p36hZKksQczgAepus1-n4y4W_z3rrlf/view?usp=shari
 - AI 렌더링 이미지 생성
 - 여행 코스 설계 및 AI 검증
 - 객관적 랭킹 시스템
-
----
-
-## ⚠️ 문제 해결 (Troubleshooting)
-
-### 🔧 Python/백엔드 문제
-
-#### 1. ModuleNotFoundError
-
-**원인**: Python 패키지 미설치
-
-**해결**:
-```bash
-# 가상환경 활성화 확인
-# Windows: venv\Scripts\activate
-# macOS/Linux: source venv/bin/activate
-
-# 패키지 재설치
-pip install -r requirements.txt --upgrade
-```
-
-#### 2. SQLite 데이터베이스 오류
-
-**원인**: DB 파일 손상 또는 스키마 불일치
-
-**해결**:
-```bash
-# 데이터베이스 삭제 후 재생성
-rm tour.db  # Windows: del tour.db
-python -c "from src.infrastructure.persistence.database import init_db; init_db()"
-```
-
-#### 3. API 키 오류
-
-**원인**: `.env` 파일 위치 또는 키 오류
-
-**해결**:
-1. `.env` 파일이 프로젝트 **루트**에 있는지 확인
-2. API 키에 공백이나 따옴표 없는지 확인
-3. Google Gemini API 할당량 확인
-4. 백엔드 서버 재시작
-
-#### 4. 포트 충돌
-
-**원인**: 포트 8000 또는 7860이 이미 사용 중
-
-**해결**:
-```bash
-# Windows
-netstat -ano | findstr :8000
-taskkill /PID <PID번호> /F
-
-# macOS/Linux
-lsof -ti:8000 | xargs kill -9
-```
-
-### 🎨 React/프론트엔드 문제
-
-#### 1. npm install 실패
-
-**원인**: Node 버전 불일치 또는 캐시 문제
-
-**해결**:
-```bash
-# Node 버전 확인 (18+ 필요)
-node --version
-
-# 캐시 클리어 후 재설치
-cd frontend
-rm -rf node_modules package-lock.json
-npm cache clean --force
-npm install
-```
-
-#### 2. 백엔드 연결 실패 (CORS, Proxy)
-
-**원인**: 백엔드 서버 미실행 또는 프록시 설정 오류
-
-**해결**:
-1. 백엔드 서버 실행 중인지 확인: http://localhost:8000
-2. `frontend/vite.config.ts` 프록시 설정 확인:
-```typescript
-server: {
-  port: 3000,
-  proxy: {
-    '/api': {
-      target: 'http://localhost:8000',
-      changeOrigin: true,
-    },
-  },
-}
-```
-
-#### 3. Tailwind 스타일 미적용
-
-**원인**: Tailwind 설정 오류
-
-**해결**:
-1. `tailwind.config.js`에서 content 경로 확인
-2. 개발 서버 재시작: `npm run dev`
-
-### 🕷️ 웹 스크래핑 문제
-
-#### 1. Playwright 오류
-
-**원인**: Chrome 브라우저 미설치 또는 ChromeDriver 오류
-
-**해결**:
-```bash
-# Playwright 브라우저 설치
-playwright install chromium
-
-# 또는 전체 재설치
-pip install playwright --upgrade
-playwright install
-```
-
-### 🐛 일반적인 문제
-
-#### 페이지가 흰 화면
-
-**해결 단계**:
-1. 브라우저 콘솔(F12) 확인
-2. 네트워크 탭에서 API 응답 확인
-3. 백엔드 로그 확인
-
-#### 이미지가 안 보임
-
-**해결 단계**:
-1. `best_images_and_icons` 폴더 확인
-2. API 경로 확인: `/api/assets/...`
-3. Fallback 이미지 확인
 
 ---
 

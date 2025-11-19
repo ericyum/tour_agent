@@ -62,6 +62,7 @@ from src.application.use_cases.rendering_use_case import RenderingUseCase
 from src.application.services.course_service import get_course_details_by_title
 from src.application.services.facility_service import get_facility_details_by_title
 from src.infrastructure.reporting.wordclouds import create_sentiment_wordclouds
+from src.infrastructure.cache_manager import load_from_cache, save_to_cache
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -383,12 +384,19 @@ async def get_facility_details(facility_title: str):
 async def get_festival_trend(festival_name: str):
     """Get trend graphs for a festival"""
     try:
+        # 캐시 확인
+        cached_data = load_from_cache("trend", festival_name=festival_name)
+        if cached_data:
+            return cached_data
+
         yearly_img, event_img, message = await analysis_use_case.generate_trend_graphs(
             festival_name
         )
 
         if not yearly_img and not event_img:
-            return {"message": message, "yearly_trend": None, "event_trend": None}
+            result = {"message": message, "yearly_trend": None, "event_trend": None}
+            save_to_cache(result, "trend", festival_name=festival_name)
+            return result
 
         # Convert PIL images to base64
         yearly_b64 = None
@@ -403,13 +411,17 @@ async def get_festival_trend(festival_name: str):
             event_img.save(buffered, format="PNG")
             event_b64 = base64.b64encode(buffered.getvalue()).decode()
 
-        return {
+        result = {
             "yearly_trend": (
                 f"data:image/png;base64,{yearly_b64}" if yearly_b64 else None
             ),
             "event_trend": f"data:image/png;base64,{event_b64}" if event_b64 else None,
             "message": message,
         }
+
+        # 캐시 저장
+        save_to_cache(result, "trend", festival_name=festival_name)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -422,6 +434,11 @@ async def get_sentiment_analysis(
 ):
     """Get sentiment analysis for a festival"""
     try:
+        # 캐시 확인
+        cached_data = load_from_cache("sentiment", festival_name=festival_name, num_reviews=num_reviews)
+        if cached_data:
+            return SentimentAnalysisResponse(**cached_data)
+
         result = await sentiment_analysis_use_case.analyze_sentiment(
             festival_name, num_reviews
         )
@@ -500,7 +517,7 @@ async def get_sentiment_analysis(
         if result.get("total_score_count") and result.get("outlier_count") is not None:
             outlier_description = f"총 **{result['total_score_count']}**개의 감성 점수 중 **{result['outlier_count']}**개의 이상치가 발견되었습니다."
 
-        return SentimentAnalysisResponse(
+        response = SentimentAnalysisResponse(
             summary=result.get("distribution_description", "요약 정보 없음"),
             positive_count=positive_count,
             negative_count=negative_count,
@@ -528,6 +545,10 @@ async def get_sentiment_analysis(
             blog_judgments_list=result.get("blog_judgments_list"),
             overall_summary_text=result.get("overall_summary_text"),
         )
+
+        # 캐시 저장
+        save_to_cache(response.dict(), "sentiment", festival_name=festival_name, num_reviews=num_reviews)
+        return response
     except Exception as e:
         import traceback
 
@@ -555,6 +576,11 @@ async def scrape_images(festival_name: str, num_blogs: int = Query(5, ge=1, le=2
 async def get_wordcloud(festival_name: str, num_reviews: int = Query(20, ge=1, le=100)):
     """Generate a word cloud for a festival"""
     try:
+        # 캐시 확인
+        cached_data = load_from_cache("wordcloud", festival_name=festival_name, num_reviews=num_reviews)
+        if cached_data:
+            return cached_data
+
         wc_image, message = await analysis_use_case.generate_word_cloud(
             festival_name, num_reviews
         )
@@ -565,7 +591,11 @@ async def get_wordcloud(festival_name: str, num_reviews: int = Query(20, ge=1, l
         wc_image.save(buffered, format="PNG")
         img_b64 = base64.b64encode(buffered.getvalue()).decode()
 
-        return {"wordcloud": f"data:image/png;base64,{img_b64}", "message": message}
+        result = {"wordcloud": f"data:image/png;base64,{img_b64}", "message": message}
+
+        # 캐시 저장
+        save_to_cache(result, "wordcloud", festival_name=festival_name, num_reviews=num_reviews)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -576,10 +606,19 @@ async def get_review_summary(
 ):
     """Get an AI-generated summary of Naver blog reviews"""
     try:
+        # 캐시 확인
+        cached_data = load_from_cache("review_summary", festival_name=festival_name, num_reviews=num_reviews)
+        if cached_data:
+            return cached_data
+
         summary, _ = await naver_supervisor.get_review_summary_and_tips(
             festival_name, num_reviews=num_reviews
         )
-        return {"summary": summary}
+        result = {"summary": summary}
+
+        # 캐시 저장
+        save_to_cache(result, "review_summary", festival_name=festival_name, num_reviews=num_reviews)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -588,6 +627,11 @@ async def get_review_summary(
 async def get_precautions(festival_name: str):
     """Get AI-generated precautions for a festival"""
     try:
+        # 캐시 확인
+        cached_data = load_from_cache("precautions", festival_name=festival_name)
+        if cached_data:
+            return cached_data
+
         print(f"[Precautions] Requested for: '{festival_name}'")
         print(f"[Precautions] Total festivals in lookup: {len(FESTIVAL_INFO_LOOKUP)}")
 
@@ -599,7 +643,9 @@ async def get_precautions(festival_name: str):
                 print(f"[Precautions] Festival not found. Similar names: {similar[:5]}")
             else:
                 print(f"[Precautions] Festival not found. No similar names.")
-            return {"precautions": "이 축제에 대한 특별한 주의사항 정보가 없습니다."}
+            result = {"precautions": "이 축제에 대한 특별한 주의사항 정보가 없습니다."}
+            save_to_cache(result, "precautions", festival_name=festival_name)
+            return result
 
         detailed_category = info.get("detailed_category", "")
         prohibited_behaviors = info.get("prohibited_behaviors", "")
@@ -609,13 +655,19 @@ async def get_precautions(festival_name: str):
 
         if not detailed_category and not prohibited_behaviors:
             print(f"[Precautions] No precaution data available for this festival")
-            return {"precautions": "이 축제에 대한 특별한 주의사항 정보가 없습니다."}
+            result = {"precautions": "이 축제에 대한 특별한 주의사항 정보가 없습니다."}
+            save_to_cache(result, "precautions", festival_name=festival_name)
+            return result
 
         precautions = await precaution_agent.generate_precautions(
             festival_name, detailed_category, prohibited_behaviors
         )
 
-        return {"precautions": precautions}
+        result = {"precautions": precautions}
+
+        # 캐시 저장
+        save_to_cache(result, "precautions", festival_name=festival_name)
+        return result
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -626,6 +678,17 @@ async def get_precautions(festival_name: str):
 async def rank_festivals(request: RankingRequest):
     """Rank selected festivals based on sentiment and trend analysis"""
     try:
+        # 캐시 확인 (축제 목록을 정렬하여 순서에 상관없이 동일한 캐시 키 생성)
+        sorted_festivals = sorted(request.festivals)
+        cached_data = load_from_cache(
+            "ranking",
+            festivals=tuple(sorted_festivals),
+            num_reviews=request.num_reviews,
+            top_n=request.top_n
+        )
+        if cached_data:
+            return cached_data
+
         # Fetch full festival details from database for each festival name
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -654,7 +717,17 @@ async def rank_festivals(request: RankingRequest):
         ranked_festivals, analysis = await ranking_use_case.rank_festivals(
             festivals_data, request.num_reviews, request.top_n
         )
-        return {"ranked_festivals": ranked_festivals, "analysis": analysis}
+        result = {"ranked_festivals": ranked_festivals, "analysis": analysis}
+
+        # 캐시 저장
+        save_to_cache(
+            result,
+            "ranking",
+            festivals=tuple(sorted_festivals),
+            num_reviews=request.num_reviews,
+            top_n=request.top_n
+        )
+        return result
     except Exception as e:
         import traceback
 
@@ -667,6 +740,11 @@ async def rank_festivals(request: RankingRequest):
 async def render_festival_image(festival_name: str):
     """Generate AI-rendered image for a festival"""
     try:
+        # 캐시 확인
+        cached_data = load_from_cache("render", festival_name=festival_name)
+        if cached_data:
+            return cached_data
+
         print(f"[Rendering] Requested for: '{festival_name}'")
 
         # 1. Get festival details
@@ -676,7 +754,7 @@ async def render_festival_image(festival_name: str):
 
         # 2. Call the rendering use case
         generated_paths = await rendering_use_case.generate_festival_renderings(details)
-        
+
         # 3. Process representative image
         representative_image = None
         rep_path = generated_paths.get("representative")
@@ -708,10 +786,14 @@ async def render_festival_image(festival_name: str):
         if not representative_image and not conditional_images:
              raise HTTPException(status_code=500, detail="Failed to generate any images.")
 
-        return {
+        result = {
             "representative_image": representative_image,
             "conditional_images": conditional_images
         }
+
+        # 캐시 저장
+        save_to_cache(result, "render", festival_name=festival_name)
+        return result
 
     except Exception as e:
         print(f"[Rendering] ERROR: {str(e)}")
@@ -724,6 +806,13 @@ async def render_festival_image(festival_name: str):
 async def validate_course(request: CourseValidationRequest):
     """Validate and optimize a travel course"""
     try:
+        # 캐시 확인 (course를 JSON 문자열로 변환하여 캐시 키 생성)
+        import json
+        course_key = json.dumps(request.course, sort_keys=True, ensure_ascii=False)
+        cached_data = load_from_cache("course_validate", course=course_key, duration=request.duration)
+        if cached_data:
+            return cached_data
+
         state = {
             "course": request.course,
             "duration": request.duration,
@@ -732,7 +821,11 @@ async def validate_course(request: CourseValidationRequest):
 
         result_state = course_validation_graph.invoke(state)
 
-        return {"validation_result": result_state.get("validation_result", "")}
+        result = {"validation_result": result_state.get("validation_result", "")}
+
+        # 캐시 저장
+        save_to_cache(result, "course_validate", course=course_key, duration=request.duration)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
