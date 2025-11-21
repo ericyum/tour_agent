@@ -11,7 +11,7 @@ import {
 } from '@/lib/api'
 import { formatDateRange, getFestivalStatus, removeHtmlTags } from '@/lib/utils'
 import { useCourseStore } from '@/store/useCourseStore'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import FestivalCard from '@/components/festival/FestivalCard'
@@ -19,6 +19,9 @@ import SentimentDonutChart from '@/components/charts/SentimentDonutChart'
 import SatisfactionBarChart from '@/components/charts/SatisfactionBarChart'
 import AbsoluteScoreLineChart from '@/components/charts/AbsoluteScoreLineChart'
 import OutlierBoxPlot from '@/components/charts/OutlierBoxPlot'
+import { FeedbackWidget } from '@/components/feedback/FeedbackWidget'
+import { FeatureRating } from '@/components/feedback/FeatureRating'
+import { analytics } from '@/lib/analytics'
 
 type TabType = 'images' | 'trend' | 'wordcloud' | 'sentiment' | 'summary' | 'nearby' | 'precautions' | 'rendering'
 
@@ -40,6 +43,13 @@ export default function FestivalDetailPage() {
   const addItem = useCourseStore((state) => state.addItem)
   const courseItems = useCourseStore((state) => state.courseItems)
   const [activeTab, setActiveTab] = useState<TabType>('images')
+
+  // Track page view
+  useEffect(() => {
+    if (festivalName) {
+      analytics.festivalViewed(festivalName)
+    }
+  }, [festivalName])
 
   // State for sliders
   const [numBlogsForImages, setNumBlogsForImages] = useState(5)
@@ -121,7 +131,15 @@ export default function FestivalDetailPage() {
             <div className="mb-4 space-y-2">
               <label className="block text-sm font-medium text-slate-700">분석할 후기 수: <span className="font-bold text-primary-600">{numReviewsForSentiment}개</span></label>
               <input type="range" min="1" max="10" step="1" value={numReviewsForSentiment} onChange={(e) => setNumReviewsForSentiment(Number(e.target.value))} className="w-full accent-primary-600" />
-              <button onClick={() => { setBlogTablePage(1); sentimentMutation.mutate(); }} disabled={sentimentMutation.isPending} className="btn-primary">
+              <button
+                onClick={() => {
+                  setBlogTablePage(1);
+                  sentimentMutation.mutate();
+                  analytics.sentimentAnalysisClicked(festivalName!);
+                }}
+                disabled={sentimentMutation.isPending}
+                className="btn-primary"
+              >
                 {sentimentMutation.isPending ? '분석 중...' : '감성 분석 실행'}
               </button>
             </div>
@@ -307,6 +325,16 @@ export default function FestivalDetailPage() {
                     )}
                   </div>
                 )}
+
+                {/* Feature Rating for Sentiment Analysis */}
+                <div className="mt-8">
+                  <FeatureRating
+                    festivalName={festivalName!}
+                    featureName="sentiment_analysis"
+                    featureLabel="AI 감성 분석이 유용했나요?"
+                    description="블로그 후기 기반 감성 분석의 정확도와 유용성을 평가해주세요"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -578,6 +606,9 @@ export default function FestivalDetailPage() {
           {renderTabContent()}
         </div>
       </div>
+
+      {/* Feedback Widget */}
+      <FeedbackWidget festivalName={festivalName} />
     </motion.div>
   )
 }

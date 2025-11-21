@@ -100,6 +100,49 @@ def init_db():
     ''')
     print("Courses table created.")
 
+    # Create feedback tables for MVP
+    print("Creating feedback table...")
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            page_url TEXT NOT NULL,
+            festival_name TEXT,
+            rating INTEGER NOT NULL,
+            comment TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            user_agent TEXT,
+            session_id TEXT
+        )
+    ''')
+    print("Feedback table created.")
+
+    print("Creating feature_ratings table...")
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS feature_ratings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            festival_name TEXT NOT NULL,
+            feature_name TEXT NOT NULL,
+            rating INTEGER NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            session_id TEXT
+        )
+    ''')
+    print("Feature ratings table created.")
+
+    print("Creating user_events table...")
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_category TEXT NOT NULL,
+            event_action TEXT NOT NULL,
+            event_label TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            session_id TEXT,
+            page_url TEXT
+        )
+    ''')
+    print("User events table created.")
+
     conn.commit()
     conn.close()
     print(f"Database '{db_path}' initialized with necessary tables.")

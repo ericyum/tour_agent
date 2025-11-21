@@ -9,7 +9,7 @@ import re
 # Add the 'src' directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -63,6 +63,19 @@ from src.application.services.course_service import get_course_details_by_title
 from src.application.services.facility_service import get_facility_details_by_title
 from src.infrastructure.reporting.wordclouds import create_sentiment_wordclouds
 from src.infrastructure.cache_manager import load_from_cache, save_to_cache
+from src.application.services.auth_service import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    create_refresh_token,
+    verify_refresh_token,
+    revoke_refresh_token,
+    revoke_all_user_tokens,
+    get_current_user_from_token,
+    require_auth,
+    require_admin,
+)
+from src.application.services import qna_service
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -864,6 +877,894 @@ async def get_asset(asset_type: str, filename: str):
         if not os.path.exists(asset_path):
             raise HTTPException(status_code=404, detail="Asset not found")
         return FileResponse(asset_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# MVP Feedback & Analytics Endpoints
+# ============================================================================
+
+class FeedbackSubmission(BaseModel):
+    page_url: str
+    festival_name: Optional[str] = None
+    rating: int  # 1 (thumbs down) or 5 (thumbs up)
+    comment: Optional[str] = None
+    user_agent: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+class FeatureRatingSubmission(BaseModel):
+    festival_name: str
+    feature_name: str  # e.g., "sentiment_analysis", "wordcloud", "ai_rendering"
+    rating: int  # 1-5 stars
+    session_id: Optional[str] = None
+
+
+class UserEventSubmission(BaseModel):
+    event_category: str  # e.g., "Festival", "AI", "Course"
+    event_action: str  # e.g., "SearchExecuted", "SentimentAnalysisClicked"
+    event_label: Optional[str] = None  # e.g., festival name
+    session_id: Optional[str] = None
+    page_url: Optional[str] = None
+    user_id: Optional[int] = None  # Authenticated user ID
+    guest_id: Optional[str] = None  # Guest identifier (e.g., "Guest1")
+    username: Optional[str] = None  # Username for authenticated users
+
+
+@app.post("/api/feedback")
+async def submit_feedback(feedback: FeedbackSubmission):
+    """Submit general page feedback (A: Simple Feedback Form)"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO feedback (page_url, festival_name, rating, comment, user_agent, session_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                feedback.page_url,
+                feedback.festival_name,
+                feedback.rating,
+                feedback.comment,
+                feedback.user_agent,
+                feedback.session_id,
+            ),
+        )
+        conn.commit()
+        feedback_id = cursor.lastrowid
+        conn.close()
+        return {"success": True, "id": feedback_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/feature-rating")
+async def submit_feature_rating(rating: FeatureRatingSubmission):
+    """Submit feature-specific satisfaction rating (B: Feature Satisfaction Survey)"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO feature_ratings (festival_name, feature_name, rating, session_id)
+            VALUES (?, ?, ?, ?)
+            """,
+            (rating.festival_name, rating.feature_name, rating.rating, rating.session_id),
+        )
+        conn.commit()
+        rating_id = cursor.lastrowid
+        conn.close()
+        return {"success": True, "id": rating_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/analytics/event")
+async def track_event(event: UserEventSubmission):
+    """Track user behavior events (C: User Behavior Tracking)"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO user_events (event_category, event_action, event_label, session_id, page_url, user_id, guest_id, username)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.event_category,
+                event.event_action,
+                event.event_label,
+                event.session_id,
+                event.page_url,
+                event.user_id,
+                event.guest_id,
+                event.username,
+            ),
+        )
+        conn.commit()
+        event_id = cursor.lastrowid
+        conn.close()
+        return {"success": True, "id": event_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/feedback")
+async def get_all_feedback():
+    """Admin: Get all feedback submissions"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, page_url, festival_name, rating, comment, timestamp, user_agent, session_id
+            FROM feedback
+            ORDER BY timestamp DESC
+            """
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        feedback_list = []
+        for row in rows:
+            feedback_list.append({
+                "id": row[0],
+                "page_url": row[1],
+                "festival_name": row[2],
+                "rating": row[3],
+                "comment": row[4],
+                "timestamp": row[5],
+                "user_agent": row[6],
+                "session_id": row[7],
+            })
+        return {"feedback": feedback_list, "total": len(feedback_list)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/feature-ratings")
+async def get_all_feature_ratings():
+    """Admin: Get all feature ratings"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT feature_name, AVG(rating) as avg_rating, COUNT(*) as count
+            FROM feature_ratings
+            GROUP BY feature_name
+            ORDER BY avg_rating DESC
+            """
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        ratings_list = []
+        for row in rows:
+            ratings_list.append({
+                "feature_name": row[0],
+                "avg_rating": round(row[1], 2),
+                "count": row[2],
+            })
+        return {"feature_ratings": ratings_list}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/analytics")
+async def get_analytics_summary():
+    """Admin: Get analytics summary"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Event statistics
+        cursor.execute(
+            """
+            SELECT event_category, event_action, COUNT(*) as count
+            FROM user_events
+            GROUP BY event_category, event_action
+            ORDER BY count DESC
+            LIMIT 20
+            """
+        )
+        events = cursor.fetchall()
+
+        # Popular festivals
+        cursor.execute(
+            """
+            SELECT event_label, COUNT(*) as count
+            FROM user_events
+            WHERE event_category = 'Festival' AND event_label IS NOT NULL
+            GROUP BY event_label
+            ORDER BY count DESC
+            LIMIT 10
+            """
+        )
+        popular_festivals = cursor.fetchall()
+
+        # Total counts
+        cursor.execute("SELECT COUNT(*) FROM feedback")
+        total_feedback = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM feature_ratings")
+        total_ratings = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM user_events")
+        total_events = cursor.fetchone()[0]
+
+        conn.close()
+
+        return {
+            "summary": {
+                "total_feedback": total_feedback,
+                "total_ratings": total_ratings,
+                "total_events": total_events,
+            },
+            "top_events": [
+                {"category": row[0], "action": row[1], "count": row[2]} for row in events
+            ],
+            "popular_festivals": [
+                {"festival_name": row[0], "views": row[1]} for row in popular_festivals
+            ],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Authentication & User Management Endpoints
+# ============================================================================
+
+class UserRegister(BaseModel):
+    username: str
+    email: str
+    password: str
+    full_name: Optional[str] = None
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str
+
+
+@app.post("/api/auth/register")
+async def register(user: UserRegister):
+    """Register a new user"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Check if username or email already exists
+        cursor.execute(
+            "SELECT id FROM users WHERE username = ? OR email = ?",
+            (user.username, user.email),
+        )
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Username or email already exists")
+
+        # Hash password and create user
+        password_hash = hash_password(user.password)
+        cursor.execute(
+            """
+            INSERT INTO users (username, email, password_hash, full_name, role)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user.username, user.email, password_hash, user.full_name, "user"),
+        )
+        conn.commit()
+        user_id = cursor.lastrowid
+
+        # Get created user
+        cursor.execute(
+            "SELECT id, username, email, full_name, role, created_at FROM users WHERE id = ?",
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        # Create access token + refresh token
+        access_token = create_access_token({
+            "user_id": row[0],
+            "username": row[1],
+            "role": row[4],
+        })
+        refresh_token, refresh_expires_at = create_refresh_token(row[0])
+
+        return {
+            "success": True,
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "expires_in": 900,  # 15 minutes in seconds
+            "user": {
+                "id": row[0],
+                "username": row[1],
+                "email": row[2],
+                "full_name": row[3],
+                "role": row[4],
+                "created_at": row[5],
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auth/login")
+async def login(credentials: UserLogin):
+    """Login a user"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Get user by username
+        cursor.execute(
+            """
+            SELECT id, username, email, password_hash, full_name, role, created_at
+            FROM users
+            WHERE username = ?
+            """,
+            (credentials.username,),
+        )
+        row = cursor.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+
+        # Verify password
+        if not verify_password(credentials.password, row[3]):
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+
+        # Update last login
+        cursor.execute(
+            "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?",
+            (row[0],),
+        )
+        conn.commit()
+        conn.close()
+
+        # Create access token + refresh token
+        access_token = create_access_token({
+            "user_id": row[0],
+            "username": row[1],
+            "role": row[5],
+        })
+        refresh_token, refresh_expires_at = create_refresh_token(row[0])
+
+        return {
+            "success": True,
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "expires_in": 900,  # 15 minutes in seconds
+            "user": {
+                "id": row[0],
+                "username": row[1],
+                "email": row[2],
+                "full_name": row[4],
+                "role": row[5],
+                "created_at": row[6],
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/auth/me")
+async def get_current_user(authorization: Optional[str] = Header(None)):
+    """Get current authenticated user"""
+    user_payload = require_auth(authorization)
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, username, email, full_name, role, created_at, last_login
+            FROM users
+            WHERE id = ?
+            """,
+            (user_payload["user_id"],),
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        return {
+            "id": row[0],
+            "username": row[1],
+            "email": row[2],
+            "full_name": row[3],
+            "role": row[4],
+            "created_at": row[5],
+            "last_login": row[6],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auth/refresh")
+async def refresh_access_token(request: RefreshTokenRequest):
+    """Refresh access token using refresh token"""
+    try:
+        # Verify refresh token
+        user_id = verify_refresh_token(request.refresh_token)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+        # Get user info
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, username, role FROM users WHERE id = ?",
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Create new access token
+        access_token = create_access_token({
+            "user_id": row[0],
+            "username": row[1],
+            "role": row[2],
+        })
+
+        return {
+            "success": True,
+            "access_token": access_token,
+            "token_type": "bearer",
+            "expires_in": 900,  # 15 minutes in seconds
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auth/logout")
+async def logout(request: LogoutRequest):
+    """Logout by revoking refresh token"""
+    try:
+        success = revoke_refresh_token(request.refresh_token)
+        return {"success": success, "message": "Logged out successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auth/logout-all")
+async def logout_all_devices(authorization: Optional[str] = Header(None)):
+    """Logout from all devices by revoking all user's refresh tokens"""
+    user_payload = require_auth(authorization)
+
+    try:
+        success = revoke_all_user_tokens(user_payload["user_id"])
+        return {"success": success, "message": "Logged out from all devices"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/auth/profile")
+async def update_profile(
+    update: UserUpdate,
+    authorization: Optional[str] = Header(None)
+):
+    """Update user profile"""
+    user_payload = require_auth(authorization)
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Update user
+        updates = []
+        params = []
+        if update.full_name is not None:
+            updates.append("full_name = ?")
+            params.append(update.full_name)
+        if update.email is not None:
+            updates.append("email = ?")
+            params.append(update.email)
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        params.append(user_payload["user_id"])
+        cursor.execute(
+            f"UPDATE users SET {', '.join(updates)} WHERE id = ?",
+            params,
+        )
+        conn.commit()
+
+        # Get updated user
+        cursor.execute(
+            "SELECT id, username, email, full_name, role, created_at FROM users WHERE id = ?",
+            (user_payload["user_id"],),
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        return {
+            "success": True,
+            "user": {
+                "id": row[0],
+                "username": row[1],
+                "email": row[2],
+                "full_name": row[3],
+                "role": row[4],
+                "created_at": row[5],
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auth/google")
+async def google_login(request: dict):
+    """Login or register with Google OAuth"""
+    try:
+        from src.application.services.auth_service import verify_google_token, get_or_create_google_user
+
+        # Get Google ID token from request
+        id_token = request.get("credential")
+        if not id_token:
+            raise HTTPException(status_code=400, detail="No credential provided")
+
+        # Verify token with Google
+        google_user_info = await verify_google_token(id_token)
+        if not google_user_info:
+            raise HTTPException(status_code=401, detail="Invalid Google token")
+
+        # Get or create user
+        user = get_or_create_google_user(google_user_info)
+
+        # Create tokens
+        access_token = create_access_token({
+            "user_id": user["id"],
+            "username": user["username"],
+            "role": user["role"]
+        })
+        refresh_token, refresh_expires_at = create_refresh_token(user["id"])
+
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "expires_in": 900,  # 15 minutes in seconds
+            "user": user
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/auth/account")
+async def delete_account(authorization: Optional[str] = Header(None)):
+    """
+    Delete user account and all associated data
+    Works for both local and Google OAuth accounts
+    """
+    user_payload = require_auth(authorization)
+
+    try:
+        from src.application.services.auth_service import delete_user_account
+
+        success = delete_user_account(user_payload["user_id"])
+        if not success:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        return {
+            "success": True,
+            "message": "Account successfully deleted"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Q&A Board Endpoints
+# ============================================================================
+
+class QuestionCreate(BaseModel):
+    festival_name: str
+    title: str
+    content: str
+
+
+class QuestionUpdate(BaseModel):
+    title: str
+    content: str
+
+
+class AnswerCreate(BaseModel):
+    content: str
+
+
+class AnswerUpdate(BaseModel):
+    content: str
+
+
+@app.get("/api/qna/festival/{festival_name}")
+async def get_festival_questions(festival_name: str, limit: int = 50, offset: int = 0):
+    """Get all questions for a festival"""
+    try:
+        questions = qna_service.get_questions_for_festival(festival_name, limit, offset)
+        return {"questions": questions, "total": len(questions)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/qna/question/{question_id}")
+async def get_question(question_id: int):
+    """Get a question with its answers"""
+    try:
+        question = qna_service.get_question_by_id(question_id)
+        if not question:
+            raise HTTPException(status_code=404, detail="Question not found")
+        return question
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/qna/question")
+async def create_question(
+    question: QuestionCreate,
+    authorization: Optional[str] = Header(None)
+):
+    """Create a new question (requires authentication)"""
+    user_payload = require_auth(authorization)
+
+    try:
+        question_id = qna_service.create_question(
+            question.festival_name,
+            user_payload["user_id"],
+            question.title,
+            question.content,
+        )
+        return {"success": True, "question_id": question_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/qna/question/{question_id}")
+async def update_question(
+    question_id: int,
+    update: QuestionUpdate,
+    authorization: Optional[str] = Header(None)
+):
+    """Update a question (author only)"""
+    user_payload = require_auth(authorization)
+
+    try:
+        # Check ownership
+        question = qna_service.get_question_by_id(question_id)
+        if not question:
+            raise HTTPException(status_code=404, detail="Question not found")
+
+        if question["user_id"] != user_payload["user_id"]:
+            raise HTTPException(status_code=403, detail="You can only edit your own questions")
+
+        success = qna_service.update_question(question_id, update.title, update.content)
+        if not success:
+            raise HTTPException(status_code=404, detail="Question not found")
+
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/qna/question/{question_id}")
+async def delete_question(
+    question_id: int,
+    authorization: Optional[str] = Header(None)
+):
+    """Delete a question (author or admin)"""
+    user_payload = require_auth(authorization)
+
+    try:
+        # Check ownership or admin
+        question = qna_service.get_question_by_id(question_id)
+        if not question:
+            raise HTTPException(status_code=404, detail="Question not found")
+
+        if question["user_id"] != user_payload["user_id"] and user_payload["role"] != "admin":
+            raise HTTPException(status_code=403, detail="Only author or admin can delete")
+
+        success = qna_service.delete_question(question_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Question not found")
+
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/qna/question/{question_id}/answer")
+async def create_answer(
+    question_id: int,
+    answer: AnswerCreate,
+    authorization: Optional[str] = Header(None)
+):
+    """Create an answer to a question (requires authentication)"""
+    user_payload = require_auth(authorization)
+
+    try:
+        answer_id = qna_service.create_answer(
+            question_id,
+            user_payload["user_id"],
+            answer.content,
+        )
+        return {"success": True, "answer_id": answer_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/qna/answer/{answer_id}")
+async def update_answer(
+    answer_id: int,
+    update: AnswerUpdate,
+    authorization: Optional[str] = Header(None)
+):
+    """Update an answer (author only)"""
+    user_payload = require_auth(authorization)
+
+    try:
+        # Check ownership
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id FROM answers WHERE id = ?", (answer_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Answer not found")
+
+        if row[0] != user_payload["user_id"]:
+            raise HTTPException(status_code=403, detail="You can only edit your own answers")
+
+        success = qna_service.update_answer(answer_id, update.content)
+        if not success:
+            raise HTTPException(status_code=404, detail="Answer not found")
+
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/qna/answer/{answer_id}")
+async def delete_answer(
+    answer_id: int,
+    authorization: Optional[str] = Header(None)
+):
+    """Delete an answer (author or admin)"""
+    user_payload = require_auth(authorization)
+
+    try:
+        # Check ownership or admin
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id FROM answers WHERE id = ?", (answer_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Answer not found")
+
+        if row[0] != user_payload["user_id"] and user_payload["role"] != "admin":
+            raise HTTPException(status_code=403, detail="Only author or admin can delete")
+
+        success = qna_service.delete_answer(answer_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Answer not found")
+
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/qna/answer/{answer_id}/accept")
+async def accept_answer(
+    answer_id: int,
+    authorization: Optional[str] = Header(None)
+):
+    """Accept an answer (question author only)"""
+    user_payload = require_auth(authorization)
+
+    try:
+        # Get answer and question
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT a.question_id, q.user_id
+            FROM answers a
+            JOIN questions q ON a.question_id = q.id
+            WHERE a.id = ?
+            """,
+            (answer_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Answer not found")
+
+        question_id, question_author_id = row
+
+        if question_author_id != user_payload["user_id"]:
+            raise HTTPException(status_code=403, detail="Only question author can accept answers")
+
+        success = qna_service.accept_answer(answer_id, question_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Answer not found")
+
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/user/questions")
+async def get_my_questions(authorization: Optional[str] = Header(None)):
+    """Get current user's questions"""
+    user_payload = require_auth(authorization)
+
+    try:
+        questions = qna_service.get_user_questions(user_payload["user_id"])
+        return {"questions": questions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/user/answers")
+async def get_my_answers(authorization: Optional[str] = Header(None)):
+    """Get current user's answers"""
+    user_payload = require_auth(authorization)
+
+    try:
+        answers = qna_service.get_user_answers(user_payload["user_id"])
+        return {"answers": answers}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
