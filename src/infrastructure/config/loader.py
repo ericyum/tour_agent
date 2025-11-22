@@ -2,8 +2,8 @@ import os
 import json
 import re
 import pandas as pd
-import sqlite3
 from matplotlib import font_manager
+from src.infrastructure.persistence.database import get_db_connection, release_connection, get_cursor
 
 # --- Path Setup ---
 PROJECT_ROOT = os.path.dirname(
@@ -57,22 +57,24 @@ def load_festival_categories_and_maps():
                 for title in titles:
                     title_to_cat_names[title] = (main_name, med_name, small_name)
 
-    db_path = os.path.join(PROJECT_ROOT, "tour.db")
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT title, cat1, cat2, cat3 FROM festivals WHERE cat1 IS NOT NULL AND cat2 IS NOT NULL AND cat3 IS NOT NULL"
-        )
-        db_festivals = cursor.fetchall()
-        conn.close()
-        for row in db_festivals:
-            title, code1, code2, code3 = row
-            if title in title_to_cat_names:
-                name1, name2, name3 = title_to_cat_names[title]
-                cat_name_to_code["main"][name1] = code1
-                cat_name_to_code["medium"][name2] = code2
-                cat_name_to_code["small"][name3] = code3
+        conn = get_db_connection()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute(
+                "SELECT title, cat1, cat2, cat3 FROM festivals WHERE cat1 IS NOT NULL AND cat2 IS NOT NULL AND cat3 IS NOT NULL"
+            )
+            db_festivals = cursor.fetchall()
+            for row in db_festivals:
+                title, code1, code2, code3 = row["title"], row["cat1"], row["cat2"], row["cat3"]
+                if title in title_to_cat_names:
+                    name1, name2, name3 = title_to_cat_names[title]
+                    cat_name_to_code["main"][name1] = code1
+                    cat_name_to_code["medium"][name2] = code2
+                    cat_name_to_code["small"][name3] = code3
+        finally:
+            cursor.close()
+            release_connection(conn)
     except Exception as e:
         print(f"Error reading database for category codes: {e}")
 
@@ -136,32 +138,34 @@ def load_festival_info_lookup():
         print(f"Error loading festival_final_classification.csv: {e}")
 
     # Load from DB and match with CSV
-    db_path = os.path.join(PROJECT_ROOT, "tour.db")
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT title, eventstartdate, eventenddate, addr1, tel, homepage, mapx, mapy, contentid FROM festivals"
-        )
-        db_festivals = cursor.fetchall()
-        conn.close()
+        conn = get_db_connection()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute(
+                "SELECT title, eventstartdate, eventenddate, addr1, tel, homepage, mapx, mapy, contentid FROM festivals"
+            )
+            db_festivals = cursor.fetchall()
+        finally:
+            cursor.close()
+            release_connection(conn)
 
         matched_count = 0
         for row in db_festivals:
-            db_title = row[0]
+            db_title = row["title"]
             if db_title:
                 db_title = db_title.strip()
 
                 # Initialize entry with DB info
                 festival_info[db_title] = {
-                    "eventstartdate": row[1],
-                    "eventenddate": row[2],
-                    "addr1": row[3],
-                    "tel": row[4],
-                    "homepage": row[5],
-                    "mapx": row[6],
-                    "mapy": row[7],
-                    "contentid": row[8],
+                    "eventstartdate": row["eventstartdate"],
+                    "eventenddate": row["eventenddate"],
+                    "addr1": row["addr1"],
+                    "tel": row["tel"],
+                    "homepage": row["homepage"],
+                    "mapx": row["mapx"],
+                    "mapy": row["mapy"],
+                    "contentid": row["contentid"],
                 }
 
                 # Try to match with CSV data

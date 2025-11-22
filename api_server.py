@@ -24,7 +24,10 @@ from src.infrastructure.config.settings import setup_environment
 setup_environment()
 
 # Import the database initializer
-from src.infrastructure.persistence.database import init_db, get_db_connection
+from src.infrastructure.persistence.database import init_db, get_db_connection, release_connection, get_cursor
+
+# Initialize database BEFORE importing loader (which queries DB at import time)
+init_db()
 
 # Import configurations and utilities
 from src.infrastructure.config.loader import (
@@ -62,7 +65,14 @@ from src.application.use_cases.rendering_use_case import RenderingUseCase
 from src.application.services.course_service import get_course_details_by_title
 from src.application.services.facility_service import get_facility_details_by_title
 from src.infrastructure.reporting.wordclouds import create_sentiment_wordclouds
-from src.infrastructure.cache_manager import load_from_cache, save_to_cache
+from src.infrastructure.cache_manager import (
+    load_from_cache,
+    save_to_cache,
+    get_task_progress,
+    get_task_result,
+    get_cache_stats,
+    REDIS_AVAILABLE,
+)
 from src.application.services.auth_service import (
     hash_password,
     verify_password,
@@ -222,9 +232,7 @@ def fig_to_base64(fig):
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup"""
-    if not os.path.exists(os.path.join(script_dir, "tour.db")):
-        init_db()
+    """Server startup event"""
     print("✅ FestMoment API Server Started")
 
 
@@ -704,23 +712,25 @@ async def rank_festivals(request: RankingRequest):
 
         # Fetch full festival details from database for each festival name
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = get_cursor(conn)
 
-        festivals_data = []
-        for festival_name in request.festivals:
-            cursor.execute(
-                """
-                SELECT * FROM festivals WHERE title = ?
-            """,
-                (festival_name,),
-            )
-            row = cursor.fetchone()
-            if row:
-                # Convert sqlite3.Row to dict
-                festival_dict = {key: row[key] for key in row.keys()}
-                festivals_data.append(festival_dict)
-
-        conn.close()
+        try:
+            festivals_data = []
+            for festival_name in request.festivals:
+                cursor.execute(
+                    """
+                    SELECT * FROM festivals WHERE title = %s
+                """,
+                    (festival_name,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    # Convert to dict (RealDictCursor returns dict-like rows)
+                    festival_dict = dict(row)
+                    festivals_data.append(festival_dict)
+        finally:
+            cursor.close()
+            release_connection(conn)
 
         if not festivals_data:
             raise HTTPException(
@@ -917,24 +927,29 @@ async def submit_feedback(feedback: FeedbackSubmission):
     """Submit general page feedback (A: Simple Feedback Form)"""
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO feedback (page_url, festival_name, rating, comment, user_agent, session_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                feedback.page_url,
-                feedback.festival_name,
-                feedback.rating,
-                feedback.comment,
-                feedback.user_agent,
-                feedback.session_id,
-            ),
-        )
-        conn.commit()
-        feedback_id = cursor.lastrowid
-        conn.close()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute(
+                """
+                INSERT INTO feedback (page_url, festival_name, rating, comment, user_agent, session_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    feedback.page_url,
+                    feedback.festival_name,
+                    feedback.rating,
+                    feedback.comment,
+                    feedback.user_agent,
+                    feedback.session_id,
+                ),
+            )
+            result = cursor.fetchone()
+            conn.commit()
+            feedback_id = result["id"]
+        finally:
+            cursor.close()
+            release_connection(conn)
         return {"success": True, "id": feedback_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -945,17 +960,22 @@ async def submit_feature_rating(rating: FeatureRatingSubmission):
     """Submit feature-specific satisfaction rating (B: Feature Satisfaction Survey)"""
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO feature_ratings (festival_name, feature_name, rating, session_id)
-            VALUES (?, ?, ?, ?)
-            """,
-            (rating.festival_name, rating.feature_name, rating.rating, rating.session_id),
-        )
-        conn.commit()
-        rating_id = cursor.lastrowid
-        conn.close()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute(
+                """
+                INSERT INTO feature_ratings (festival_name, feature_name, rating, session_id)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+                """,
+                (rating.festival_name, rating.feature_name, rating.rating, rating.session_id),
+            )
+            result = cursor.fetchone()
+            conn.commit()
+            rating_id = result["id"]
+        finally:
+            cursor.close()
+            release_connection(conn)
         return {"success": True, "id": rating_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -966,26 +986,31 @@ async def track_event(event: UserEventSubmission):
     """Track user behavior events (C: User Behavior Tracking)"""
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO user_events (event_category, event_action, event_label, session_id, page_url, user_id, guest_id, username)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event.event_category,
-                event.event_action,
-                event.event_label,
-                event.session_id,
-                event.page_url,
-                event.user_id,
-                event.guest_id,
-                event.username,
-            ),
-        )
-        conn.commit()
-        event_id = cursor.lastrowid
-        conn.close()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute(
+                """
+                INSERT INTO user_events (event_category, event_action, event_label, session_id, page_url, user_id, guest_id, username)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    event.event_category,
+                    event.event_action,
+                    event.event_label,
+                    event.session_id,
+                    event.page_url,
+                    event.user_id,
+                    event.guest_id,
+                    event.username,
+                ),
+            )
+            result = cursor.fetchone()
+            conn.commit()
+            event_id = result["id"]
+        finally:
+            cursor.close()
+            release_connection(conn)
         return {"success": True, "id": event_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -996,28 +1021,31 @@ async def get_all_feedback():
     """Admin: Get all feedback submissions"""
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT id, page_url, festival_name, rating, comment, timestamp, user_agent, session_id
-            FROM feedback
-            ORDER BY timestamp DESC
-            """
-        )
-        rows = cursor.fetchall()
-        conn.close()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute(
+                """
+                SELECT id, page_url, festival_name, rating, comment, timestamp, user_agent, session_id
+                FROM feedback
+                ORDER BY timestamp DESC
+                """
+            )
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+            release_connection(conn)
 
         feedback_list = []
         for row in rows:
             feedback_list.append({
-                "id": row[0],
-                "page_url": row[1],
-                "festival_name": row[2],
-                "rating": row[3],
-                "comment": row[4],
-                "timestamp": row[5],
-                "user_agent": row[6],
-                "session_id": row[7],
+                "id": row["id"],
+                "page_url": row["page_url"],
+                "festival_name": row["festival_name"],
+                "rating": row["rating"],
+                "comment": row["comment"],
+                "timestamp": str(row["timestamp"]) if row["timestamp"] else None,
+                "user_agent": row["user_agent"],
+                "session_id": row["session_id"],
             })
         return {"feedback": feedback_list, "total": len(feedback_list)}
     except Exception as e:
@@ -1029,24 +1057,27 @@ async def get_all_feature_ratings():
     """Admin: Get all feature ratings"""
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT feature_name, AVG(rating) as avg_rating, COUNT(*) as count
-            FROM feature_ratings
-            GROUP BY feature_name
-            ORDER BY avg_rating DESC
-            """
-        )
-        rows = cursor.fetchall()
-        conn.close()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute(
+                """
+                SELECT feature_name, AVG(rating) as avg_rating, COUNT(*) as count
+                FROM feature_ratings
+                GROUP BY feature_name
+                ORDER BY avg_rating DESC
+                """
+            )
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+            release_connection(conn)
 
         ratings_list = []
         for row in rows:
             ratings_list.append({
-                "feature_name": row[0],
-                "avg_rating": round(row[1], 2),
-                "count": row[2],
+                "feature_name": row["feature_name"],
+                "avg_rating": round(float(row["avg_rating"]), 2) if row["avg_rating"] else 0,
+                "count": row["count"],
             })
         return {"feature_ratings": ratings_list}
     except Exception as e:
@@ -1058,44 +1089,46 @@ async def get_analytics_summary():
     """Admin: Get analytics summary"""
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = get_cursor(conn)
 
-        # Event statistics
-        cursor.execute(
-            """
-            SELECT event_category, event_action, COUNT(*) as count
-            FROM user_events
-            GROUP BY event_category, event_action
-            ORDER BY count DESC
-            LIMIT 20
-            """
-        )
-        events = cursor.fetchall()
+        try:
+            # Event statistics
+            cursor.execute(
+                """
+                SELECT event_category, event_action, COUNT(*) as count
+                FROM user_events
+                GROUP BY event_category, event_action
+                ORDER BY count DESC
+                LIMIT 20
+                """
+            )
+            events = cursor.fetchall()
 
-        # Popular festivals
-        cursor.execute(
-            """
-            SELECT event_label, COUNT(*) as count
-            FROM user_events
-            WHERE event_category = 'Festival' AND event_label IS NOT NULL
-            GROUP BY event_label
-            ORDER BY count DESC
-            LIMIT 10
-            """
-        )
-        popular_festivals = cursor.fetchall()
+            # Popular festivals
+            cursor.execute(
+                """
+                SELECT event_label, COUNT(*) as count
+                FROM user_events
+                WHERE event_category = 'Festival' AND event_label IS NOT NULL
+                GROUP BY event_label
+                ORDER BY count DESC
+                LIMIT 10
+                """
+            )
+            popular_festivals = cursor.fetchall()
 
-        # Total counts
-        cursor.execute("SELECT COUNT(*) FROM feedback")
-        total_feedback = cursor.fetchone()[0]
+            # Total counts
+            cursor.execute("SELECT COUNT(*) as cnt FROM feedback")
+            total_feedback = cursor.fetchone()["cnt"]
 
-        cursor.execute("SELECT COUNT(*) FROM feature_ratings")
-        total_ratings = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) as cnt FROM feature_ratings")
+            total_ratings = cursor.fetchone()["cnt"]
 
-        cursor.execute("SELECT COUNT(*) FROM user_events")
-        total_events = cursor.fetchone()[0]
-
-        conn.close()
+            cursor.execute("SELECT COUNT(*) as cnt FROM user_events")
+            total_events = cursor.fetchone()["cnt"]
+        finally:
+            cursor.close()
+            release_connection(conn)
 
         return {
             "summary": {
@@ -1104,10 +1137,112 @@ async def get_analytics_summary():
                 "total_events": total_events,
             },
             "top_events": [
-                {"category": row[0], "action": row[1], "count": row[2]} for row in events
+                {"category": row["event_category"], "action": row["event_action"], "count": row["count"]} for row in events
             ],
             "popular_festivals": [
-                {"festival_name": row[0], "views": row[1]} for row in popular_festivals
+                {"festival_name": row["event_label"], "views": row["count"]} for row in popular_festivals
+            ],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/qna")
+async def get_qna_statistics():
+    """Admin: Get Q&A statistics for dashboard"""
+    try:
+        conn = get_db_connection()
+        cursor = get_cursor(conn)
+
+        try:
+            # Total counts
+            cursor.execute("SELECT COUNT(*) as cnt FROM questions")
+            total_questions = cursor.fetchone()["cnt"]
+
+            cursor.execute("SELECT COUNT(*) as cnt FROM answers")
+            total_answers = cursor.fetchone()["cnt"]
+
+            # Unanswered questions count
+            cursor.execute("""
+                SELECT COUNT(*) as cnt FROM questions q
+                WHERE NOT EXISTS (SELECT 1 FROM answers a WHERE a.question_id = q.id)
+            """)
+            unanswered_questions = cursor.fetchone()["cnt"]
+
+            # Questions by festival (top 10)
+            cursor.execute("""
+                SELECT festival_name, COUNT(*) as count
+                FROM questions
+                GROUP BY festival_name
+                ORDER BY count DESC
+                LIMIT 10
+            """)
+            questions_by_festival = cursor.fetchall()
+
+            # Recent questions (latest 10)
+            cursor.execute("""
+                SELECT
+                    q.id, q.festival_name, q.title, q.created_at, q.views,
+                    u.username,
+                    (SELECT COUNT(*) FROM answers WHERE question_id = q.id) as answer_count
+                FROM questions q
+                JOIN users u ON q.user_id = u.id
+                ORDER BY q.created_at DESC
+                LIMIT 10
+            """)
+            recent_questions = cursor.fetchall()
+
+            # Recent answers (latest 10)
+            cursor.execute("""
+                SELECT
+                    a.id, a.content, a.created_at, a.is_accepted,
+                    u.username, u.role,
+                    q.title as question_title, q.festival_name
+                FROM answers a
+                JOIN users u ON a.user_id = u.id
+                JOIN questions q ON a.question_id = q.id
+                ORDER BY a.created_at DESC
+                LIMIT 10
+            """)
+            recent_answers = cursor.fetchall()
+        finally:
+            cursor.close()
+            release_connection(conn)
+
+        return {
+            "summary": {
+                "total_questions": total_questions,
+                "total_answers": total_answers,
+                "unanswered_questions": unanswered_questions,
+                "answer_rate": round((total_answers / total_questions * 100), 1) if total_questions > 0 else 0,
+            },
+            "questions_by_festival": [
+                {"festival_name": row["festival_name"], "count": row["count"]} for row in questions_by_festival
+            ],
+            "recent_questions": [
+                {
+                    "id": row["id"],
+                    "festival_name": row["festival_name"],
+                    "title": row["title"],
+                    "created_at": str(row["created_at"]) if row["created_at"] else None,
+                    "views": row["views"],
+                    "author": row["username"],
+                    "answer_count": row["answer_count"],
+                }
+                for row in recent_questions
+            ],
+            "recent_answers": [
+                {
+                    "id": row["id"],
+                    "content": row["content"][:100] + "..." if len(row["content"]) > 100 else row["content"],
+                    "created_at": str(row["created_at"]) if row["created_at"] else None,
+                    "is_accepted": bool(row["is_accepted"]),
+                    "author": row["username"],
+                    "author_role": row["role"],
+                    "question_title": row["question_title"],
+                    "festival_name": row["festival_name"],
+                }
+                for row in recent_answers
             ],
         }
     except Exception as e:
@@ -1148,43 +1283,48 @@ async def register(user: UserRegister):
     """Register a new user"""
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = get_cursor(conn)
 
-        # Check if username or email already exists
-        cursor.execute(
-            "SELECT id FROM users WHERE username = ? OR email = ?",
-            (user.username, user.email),
-        )
-        if cursor.fetchone():
-            raise HTTPException(status_code=400, detail="Username or email already exists")
+        try:
+            # Check if username or email already exists
+            cursor.execute(
+                "SELECT id FROM users WHERE username = %s OR email = %s",
+                (user.username, user.email),
+            )
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="Username or email already exists")
 
-        # Hash password and create user
-        password_hash = hash_password(user.password)
-        cursor.execute(
-            """
-            INSERT INTO users (username, email, password_hash, full_name, role)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (user.username, user.email, password_hash, user.full_name, "user"),
-        )
-        conn.commit()
-        user_id = cursor.lastrowid
+            # Hash password and create user
+            password_hash = hash_password(user.password)
+            cursor.execute(
+                """
+                INSERT INTO users (username, email, password_hash, full_name, role)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (user.username, user.email, password_hash, user.full_name, "user"),
+            )
+            result = cursor.fetchone()
+            conn.commit()
+            user_id = result["id"]
 
-        # Get created user
-        cursor.execute(
-            "SELECT id, username, email, full_name, role, created_at FROM users WHERE id = ?",
-            (user_id,),
-        )
-        row = cursor.fetchone()
-        conn.close()
+            # Get created user
+            cursor.execute(
+                "SELECT id, username, email, full_name, role, created_at FROM users WHERE id = %s",
+                (user_id,),
+            )
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+            release_connection(conn)
 
         # Create access token + refresh token
         access_token = create_access_token({
-            "user_id": row[0],
-            "username": row[1],
-            "role": row[4],
+            "user_id": row["id"],
+            "username": row["username"],
+            "role": row["role"],
         })
-        refresh_token, refresh_expires_at = create_refresh_token(row[0])
+        refresh_token, refresh_expires_at = create_refresh_token(row["id"])
 
         return {
             "success": True,
@@ -1193,12 +1333,12 @@ async def register(user: UserRegister):
             "token_type": "bearer",
             "expires_in": 900,  # 15 minutes in seconds
             "user": {
-                "id": row[0],
-                "username": row[1],
-                "email": row[2],
-                "full_name": row[3],
-                "role": row[4],
-                "created_at": row[5],
+                "id": row["id"],
+                "username": row["username"],
+                "email": row["email"],
+                "full_name": row["full_name"],
+                "role": row["role"],
+                "created_at": str(row["created_at"]) if row["created_at"] else None,
             },
         }
     except HTTPException:
@@ -1212,41 +1352,44 @@ async def login(credentials: UserLogin):
     """Login a user"""
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = get_cursor(conn)
 
-        # Get user by username
-        cursor.execute(
-            """
-            SELECT id, username, email, password_hash, full_name, role, created_at
-            FROM users
-            WHERE username = ?
-            """,
-            (credentials.username,),
-        )
-        row = cursor.fetchone()
+        try:
+            # Get user by username
+            cursor.execute(
+                """
+                SELECT id, username, email, password_hash, full_name, role, created_at
+                FROM users
+                WHERE username = %s
+                """,
+                (credentials.username,),
+            )
+            row = cursor.fetchone()
 
-        if not row:
-            raise HTTPException(status_code=401, detail="Invalid username or password")
+            if not row:
+                raise HTTPException(status_code=401, detail="Invalid username or password")
 
-        # Verify password
-        if not verify_password(credentials.password, row[3]):
-            raise HTTPException(status_code=401, detail="Invalid username or password")
+            # Verify password
+            if not verify_password(credentials.password, row["password_hash"]):
+                raise HTTPException(status_code=401, detail="Invalid username or password")
 
-        # Update last login
-        cursor.execute(
-            "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?",
-            (row[0],),
-        )
-        conn.commit()
-        conn.close()
+            # Update last login
+            cursor.execute(
+                "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = %s",
+                (row["id"],),
+            )
+            conn.commit()
+        finally:
+            cursor.close()
+            release_connection(conn)
 
         # Create access token + refresh token
         access_token = create_access_token({
-            "user_id": row[0],
-            "username": row[1],
-            "role": row[5],
+            "user_id": row["id"],
+            "username": row["username"],
+            "role": row["role"],
         })
-        refresh_token, refresh_expires_at = create_refresh_token(row[0])
+        refresh_token, refresh_expires_at = create_refresh_token(row["id"])
 
         return {
             "success": True,
@@ -1255,12 +1398,12 @@ async def login(credentials: UserLogin):
             "token_type": "bearer",
             "expires_in": 900,  # 15 minutes in seconds
             "user": {
-                "id": row[0],
-                "username": row[1],
-                "email": row[2],
-                "full_name": row[4],
-                "role": row[5],
-                "created_at": row[6],
+                "id": row["id"],
+                "username": row["username"],
+                "email": row["email"],
+                "full_name": row["full_name"],
+                "role": row["role"],
+                "created_at": str(row["created_at"]) if row["created_at"] else None,
             },
         }
     except HTTPException:
@@ -1276,29 +1419,32 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
 
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT id, username, email, full_name, role, created_at, last_login
-            FROM users
-            WHERE id = ?
-            """,
-            (user_payload["user_id"],),
-        )
-        row = cursor.fetchone()
-        conn.close()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute(
+                """
+                SELECT id, username, email, full_name, role, created_at, last_login
+                FROM users
+                WHERE id = %s
+                """,
+                (user_payload["user_id"],),
+            )
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+            release_connection(conn)
 
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
 
         return {
-            "id": row[0],
-            "username": row[1],
-            "email": row[2],
-            "full_name": row[3],
-            "role": row[4],
-            "created_at": row[5],
-            "last_login": row[6],
+            "id": row["id"],
+            "username": row["username"],
+            "email": row["email"],
+            "full_name": row["full_name"],
+            "role": row["role"],
+            "created_at": str(row["created_at"]) if row["created_at"] else None,
+            "last_login": str(row["last_login"]) if row["last_login"] else None,
         }
     except HTTPException:
         raise
@@ -1317,22 +1463,25 @@ async def refresh_access_token(request: RefreshTokenRequest):
 
         # Get user info
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, username, role FROM users WHERE id = ?",
-            (user_id,),
-        )
-        row = cursor.fetchone()
-        conn.close()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute(
+                "SELECT id, username, role FROM users WHERE id = %s",
+                (user_id,),
+            )
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+            release_connection(conn)
 
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
 
         # Create new access token
         access_token = create_access_token({
-            "user_id": row[0],
-            "username": row[1],
-            "role": row[2],
+            "user_id": row["id"],
+            "username": row["username"],
+            "role": row["role"],
         })
 
         return {
@@ -1379,45 +1528,50 @@ async def update_profile(
 
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = get_cursor(conn)
 
-        # Update user
-        updates = []
-        params = []
-        if update.full_name is not None:
-            updates.append("full_name = ?")
-            params.append(update.full_name)
-        if update.email is not None:
-            updates.append("email = ?")
-            params.append(update.email)
+        try:
+            # Update user (build query with numbered placeholders for PostgreSQL)
+            updates = []
+            params = []
+            param_idx = 1
+            if update.full_name is not None:
+                updates.append(f"full_name = ${param_idx}")
+                params.append(update.full_name)
+                param_idx += 1
+            if update.email is not None:
+                updates.append(f"email = ${param_idx}")
+                params.append(update.email)
+                param_idx += 1
 
-        if not updates:
-            raise HTTPException(status_code=400, detail="No fields to update")
+            if not updates:
+                raise HTTPException(status_code=400, detail="No fields to update")
 
-        params.append(user_payload["user_id"])
-        cursor.execute(
-            f"UPDATE users SET {', '.join(updates)} WHERE id = ?",
-            params,
-        )
-        conn.commit()
+            params.append(user_payload["user_id"])
+            # Use %s placeholders for psycopg2
+            query = f"UPDATE users SET {', '.join([u.replace('$' + str(i+1), '%s') for i, u in enumerate(updates)])} WHERE id = %s"
+            cursor.execute(query, params)
+            conn.commit()
 
-        # Get updated user
-        cursor.execute(
-            "SELECT id, username, email, full_name, role, created_at FROM users WHERE id = ?",
-            (user_payload["user_id"],),
-        )
-        row = cursor.fetchone()
-        conn.close()
+            # Get updated user
+            cursor.execute(
+                "SELECT id, username, email, full_name, role, created_at FROM users WHERE id = %s",
+                (user_payload["user_id"],),
+            )
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+            release_connection(conn)
 
         return {
             "success": True,
             "user": {
-                "id": row[0],
-                "username": row[1],
-                "email": row[2],
-                "full_name": row[3],
-                "role": row[4],
-                "created_at": row[5],
+                "id": row["id"],
+                "username": row["username"],
+                "email": row["email"],
+                "full_name": row["full_name"],
+                "role": row["role"],
+                "created_at": str(row["created_at"]) if row["created_at"] else None,
             },
         }
     except HTTPException:
@@ -1647,15 +1801,18 @@ async def update_answer(
     try:
         # Check ownership
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT user_id FROM answers WHERE id = ?", (answer_id,))
-        row = cursor.fetchone()
-        conn.close()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute("SELECT user_id FROM answers WHERE id = %s", (answer_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+            release_connection(conn)
 
         if not row:
             raise HTTPException(status_code=404, detail="Answer not found")
 
-        if row[0] != user_payload["user_id"]:
+        if row["user_id"] != user_payload["user_id"]:
             raise HTTPException(status_code=403, detail="You can only edit your own answers")
 
         success = qna_service.update_answer(answer_id, update.content)
@@ -1680,15 +1837,18 @@ async def delete_answer(
     try:
         # Check ownership or admin
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT user_id FROM answers WHERE id = ?", (answer_id,))
-        row = cursor.fetchone()
-        conn.close()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute("SELECT user_id FROM answers WHERE id = %s", (answer_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+            release_connection(conn)
 
         if not row:
             raise HTTPException(status_code=404, detail="Answer not found")
 
-        if row[0] != user_payload["user_id"] and user_payload["role"] != "admin":
+        if row["user_id"] != user_payload["user_id"] and user_payload["role"] != "admin":
             raise HTTPException(status_code=403, detail="Only author or admin can delete")
 
         success = qna_service.delete_answer(answer_id)
@@ -1713,23 +1873,27 @@ async def accept_answer(
     try:
         # Get answer and question
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT a.question_id, q.user_id
-            FROM answers a
-            JOIN questions q ON a.question_id = q.id
-            WHERE a.id = ?
-            """,
-            (answer_id,),
-        )
-        row = cursor.fetchone()
-        conn.close()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute(
+                """
+                SELECT a.question_id, q.user_id
+                FROM answers a
+                JOIN questions q ON a.question_id = q.id
+                WHERE a.id = %s
+                """,
+                (answer_id,),
+            )
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+            release_connection(conn)
 
         if not row:
             raise HTTPException(status_code=404, detail="Answer not found")
 
-        question_id, question_author_id = row
+        question_id = row["question_id"]
+        question_author_id = row["user_id"]
 
         if question_author_id != user_payload["user_id"]:
             raise HTTPException(status_code=403, detail="Only question author can accept answers")
@@ -1796,7 +1960,249 @@ def get_local_best_image_path(festival_name: str) -> Optional[str]:
     return None
 
 
+# ============================================================================
+# Async Task API (비동기 작업 - 진행률 추적)
+# ============================================================================
+
+class AsyncTaskRequest(BaseModel):
+    festival_name: str
+    num_reviews: int = 10
+
+
+class AsyncRankingRequest(BaseModel):
+    festivals: List[str]
+    num_reviews: int = 5
+    top_n: int = 3
+
+
+@app.get("/api/system/status")
+async def get_system_status():
+    """시스템 상태 확인 (Redis, Celery 연결 상태)"""
+    status = {
+        "redis_available": REDIS_AVAILABLE,
+        "cache_stats": get_cache_stats(),
+        "celery_available": False,
+    }
+
+    # Celery 상태 확인
+    try:
+        from celery_app import celery_app
+        inspect = celery_app.control.inspect()
+        active = inspect.active()
+        status["celery_available"] = active is not None
+        status["celery_workers"] = list(active.keys()) if active else []
+    except Exception as e:
+        status["celery_error"] = str(e)
+
+    return status
+
+
+@app.post("/api/async/sentiment/start")
+async def start_async_sentiment_analysis(request: AsyncTaskRequest):
+    """비동기 감성 분석 시작"""
+    if not REDIS_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="비동기 작업을 사용하려면 Redis가 필요합니다. 동기 API를 사용해주세요."
+        )
+
+    try:
+        from celery_tasks import analyze_sentiment_task
+
+        # Celery 작업 시작
+        task = analyze_sentiment_task.delay(
+            request.festival_name,
+            request.num_reviews
+        )
+
+        return {
+            "task_id": task.id,
+            "status": "started",
+            "message": f"'{request.festival_name}' 감성 분석이 시작되었습니다.",
+            "poll_url": f"/api/async/task/{task.id}/progress",
+            "result_url": f"/api/async/task/{task.id}/result",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/async/ranking/start")
+async def start_async_ranking_analysis(request: AsyncRankingRequest):
+    """비동기 랭킹 분석 시작"""
+    if not REDIS_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="비동기 작업을 사용하려면 Redis가 필요합니다. 동기 API를 사용해주세요."
+        )
+
+    try:
+        from celery_tasks import analyze_ranking_task
+
+        task = analyze_ranking_task.delay(
+            request.festivals,
+            request.num_reviews,
+            request.top_n
+        )
+
+        return {
+            "task_id": task.id,
+            "status": "started",
+            "message": f"{len(request.festivals)}개 축제 랭킹 분석이 시작되었습니다.",
+            "poll_url": f"/api/async/task/{task.id}/progress",
+            "result_url": f"/api/async/task/{task.id}/result",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/async/wordcloud/start")
+async def start_async_wordcloud(request: AsyncTaskRequest):
+    """비동기 워드클라우드 생성 시작"""
+    if not REDIS_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="비동기 작업을 사용하려면 Redis가 필요합니다. 동기 API를 사용해주세요."
+        )
+
+    try:
+        from celery_tasks import generate_wordcloud_task
+
+        task = generate_wordcloud_task.delay(
+            request.festival_name,
+            request.num_reviews
+        )
+
+        return {
+            "task_id": task.id,
+            "status": "started",
+            "message": f"'{request.festival_name}' 워드클라우드 생성이 시작되었습니다.",
+            "poll_url": f"/api/async/task/{task.id}/progress",
+            "result_url": f"/api/async/task/{task.id}/result",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/async/task/{task_id}/progress")
+async def get_async_task_progress(task_id: str):
+    """비동기 작업 진행률 조회"""
+    if not REDIS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Redis가 필요합니다.")
+
+    progress_data = get_task_progress(task_id)
+
+    if not progress_data:
+        # Celery에서 직접 상태 확인
+        try:
+            from celery_app import celery_app
+            from celery.result import AsyncResult
+
+            result = AsyncResult(task_id, app=celery_app)
+
+            if result.state == "PENDING":
+                return {
+                    "task_id": task_id,
+                    "progress": 0,
+                    "status": "pending",
+                    "message": "작업이 대기 중입니다...",
+                }
+            elif result.state == "STARTED":
+                return {
+                    "task_id": task_id,
+                    "progress": 5,
+                    "status": "running",
+                    "message": "작업이 시작되었습니다...",
+                }
+            elif result.state == "SUCCESS":
+                return {
+                    "task_id": task_id,
+                    "progress": 100,
+                    "status": "completed",
+                    "message": "작업이 완료되었습니다.",
+                }
+            elif result.state == "FAILURE":
+                return {
+                    "task_id": task_id,
+                    "progress": 0,
+                    "status": "failed",
+                    "message": str(result.result),
+                }
+            else:
+                return {
+                    "task_id": task_id,
+                    "progress": 0,
+                    "status": result.state.lower(),
+                    "message": "작업 상태 확인 중...",
+                }
+        except Exception as e:
+            raise HTTPException(status_code=404, detail=f"작업을 찾을 수 없습니다: {task_id}")
+
+    return {
+        "task_id": task_id,
+        **progress_data
+    }
+
+
+@app.get("/api/async/task/{task_id}/result")
+async def get_async_task_result(task_id: str):
+    """비동기 작업 결과 조회"""
+    if not REDIS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Redis가 필요합니다.")
+
+    # 먼저 Redis에서 결과 확인
+    result_data = get_task_result(task_id)
+    if result_data:
+        return {
+            "task_id": task_id,
+            "status": "completed",
+            "result": result_data,
+        }
+
+    # Celery에서 결과 확인
+    try:
+        from celery_app import celery_app
+        from celery.result import AsyncResult
+
+        result = AsyncResult(task_id, app=celery_app)
+
+        if result.ready():
+            if result.successful():
+                return {
+                    "task_id": task_id,
+                    "status": "completed",
+                    "result": result.result,
+                }
+            else:
+                return {
+                    "task_id": task_id,
+                    "status": "failed",
+                    "error": str(result.result),
+                }
+        else:
+            # 아직 완료되지 않음
+            progress = get_task_progress(task_id)
+            return {
+                "task_id": task_id,
+                "status": "running",
+                "progress": progress.get("progress", 0) if progress else 0,
+                "message": "작업이 아직 진행 중입니다. 잠시 후 다시 시도해주세요.",
+            }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"작업을 찾을 수 없습니다: {task_id}")
+
+
 if __name__ == "__main__":
     import uvicorn
+    import multiprocessing
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 워커 수 계산 (CPU 코어 수 기반, 최소 2, 최대 4)
+    workers = min(max(multiprocessing.cpu_count(), 2), 4)
+
+    uvicorn.run(
+        "api_server:app",
+        host="0.0.0.0",
+        port=8000,
+        workers=workers,
+        timeout_keep_alive=30,
+        access_log=True,
+    )

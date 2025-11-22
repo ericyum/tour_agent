@@ -1,9 +1,8 @@
-import sqlite3
 import os
 import json
 from src.application.core.db_state import DBSearchState
 from src.application.core.constants import AREA_CODE_MAP, SIGUNGU_CODE_MAP, NO_IMAGE_URL
-from src.infrastructure.persistence.database import get_db_connection
+from src.infrastructure.persistence.database import get_db_connection, release_connection, get_cursor
 
 # This function is a helper to load the category mappings, similar to what's in app.py
 # In a more advanced architecture, this might be a shared service.
@@ -42,37 +41,40 @@ def agent_festival_search(state: DBSearchState) -> DBSearchState:
     if area and area != "전체":
         area_code = AREA_CODE_MAP.get(area)
         if area_code:
-            loc_where_clauses.append("areacode = ?")
+            loc_where_clauses.append("areacode = %s")
             loc_params.append(area_code)
             if sigungu and sigungu != "전체":
                 sigungu_code = SIGUNGU_CODE_MAP.get(area, {}).get(sigungu)
                 if sigungu_code:
-                    loc_where_clauses.append("sigungucode = ?")
+                    loc_where_clauses.append("sigungucode = %s")
                     loc_params.append(sigungu_code)
 
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    query = "SELECT title, firstimage, eventstartdate, eventenddate FROM festivals"
-    if loc_where_clauses:
-        query += " WHERE " + " AND ".join(loc_where_clauses)
-        cursor.execute(query, loc_params)
-    else:
-        cursor.execute(query)
-        
-    db_results = cursor.fetchall()
-    conn.close()
+    cursor = get_cursor(conn)
+
+    try:
+        query = "SELECT title, firstimage, eventstartdate, eventenddate FROM festivals"
+        if loc_where_clauses:
+            query += " WHERE " + " AND ".join(loc_where_clauses)
+            cursor.execute(query, loc_params)
+        else:
+            cursor.execute(query)
+
+        db_results = cursor.fetchall()
+    finally:
+        cursor.close()
+        release_connection(conn)
 
     # Step 2: Secondary filtering by category using map
     TITLE_TO_CAT_NAMES = get_title_to_cat_names_map()
     is_cat_filtered = main_cat != "전체" or medium_cat != "전체" or small_cat != "전체"
-    
+
     if not is_cat_filtered:
-        final_results_tuples = db_results
+        final_results_tuples = [(row["title"], row["firstimage"], row["eventstartdate"], row["eventenddate"]) for row in db_results]
     else:
         final_results_tuples = []
         for row in db_results:
-            title = row[0]
+            title = row["title"]
             cat_names = TITLE_TO_CAT_NAMES.get(title)
             if not cat_names:
                 continue
@@ -82,7 +84,7 @@ def agent_festival_search(state: DBSearchState) -> DBSearchState:
             small_match = (small_cat == "전체" or small_cat == cat_names[2])
 
             if main_match and medium_match and small_match:
-                final_results_tuples.append(row)
+                final_results_tuples.append((row["title"], row["firstimage"], row["eventstartdate"], row["eventenddate"]))
 
     # Format results into the structure expected by the UI
     results = []

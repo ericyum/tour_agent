@@ -13,7 +13,7 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { ThumbsUp, ThumbsDown, Activity, TrendingUp } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, Activity, TrendingUp, MessageCircle, HelpCircle, CheckCircle } from 'lucide-react';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
@@ -50,10 +50,43 @@ interface Feedback {
   user_agent: string | null;
 }
 
+interface QnAStatistics {
+  summary: {
+    total_questions: number;
+    total_answers: number;
+    unanswered_questions: number;
+    answer_rate: number;
+  };
+  questions_by_festival: Array<{
+    festival_name: string;
+    count: number;
+  }>;
+  recent_questions: Array<{
+    id: number;
+    festival_name: string;
+    title: string;
+    created_at: string;
+    views: number;
+    author: string;
+    answer_count: number;
+  }>;
+  recent_answers: Array<{
+    id: number;
+    content: string;
+    created_at: string;
+    is_accepted: boolean;
+    author: string;
+    author_role: string;
+    question_title: string;
+    festival_name: string;
+  }>;
+}
+
 export default function AdminDashboard() {
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
   const [featureRatings, setFeatureRatings] = useState<FeatureRating[]>([]);
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  const [qnaStats, setQnaStats] = useState<QnAStatistics | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -78,6 +111,11 @@ export default function AdminDashboard() {
       const feedbacksRes = await fetch('http://localhost:8000/api/admin/feedback');
       const feedbacksData = await feedbacksRes.json();
       setFeedbacks(feedbacksData.feedback);
+
+      // Fetch Q&A statistics
+      const qnaRes = await fetch('http://localhost:8000/api/admin/qna');
+      const qnaData = await qnaRes.json();
+      setQnaStats(qnaData);
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
     } finally {
@@ -183,6 +221,69 @@ export default function AdminDashboard() {
           </motion.div>
         </div>
 
+        {/* Q&A Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            className="bg-white rounded-lg shadow-lg p-6 border-l-4 border-indigo-500"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">총 질문</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">
+                  {qnaStats?.summary.total_questions || 0}
+                </p>
+              </div>
+              <HelpCircle className="text-indigo-500" size={40} />
+            </div>
+          </motion.div>
+
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            className="bg-white rounded-lg shadow-lg p-6 border-l-4 border-teal-500"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">총 답변</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">
+                  {qnaStats?.summary.total_answers || 0}
+                </p>
+              </div>
+              <MessageCircle className="text-teal-500" size={40} />
+            </div>
+          </motion.div>
+
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            className="bg-white rounded-lg shadow-lg p-6 border-l-4 border-orange-500"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">미답변 질문</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">
+                  {qnaStats?.summary.unanswered_questions || 0}
+                </p>
+              </div>
+              <HelpCircle className="text-orange-500" size={40} />
+            </div>
+          </motion.div>
+
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            className="bg-white rounded-lg shadow-lg p-6 border-l-4 border-cyan-500"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">답변율</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">
+                  {qnaStats?.summary.answer_rate || 0}%
+                </p>
+              </div>
+              <CheckCircle className="text-cyan-500" size={40} />
+            </div>
+          </motion.div>
+        </div>
+
         {/* Charts Row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Feature Ratings Chart */}
@@ -225,6 +326,123 @@ export default function AdminDashboard() {
                 <Bar dataKey="views" fill="#10b981" name="조회수" />
               </BarChart>
             </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Q&A Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Questions by Festival Chart */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">축제별 Q&A 현황</h2>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={qnaStats?.questions_by_festival || []}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="festival_name"
+                  angle={-45}
+                  textAnchor="end"
+                  height={100}
+                  interval={0}
+                />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="count" fill="#6366f1" name="질문 수" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Recent Questions Table */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">최근 질문</h2>
+            <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
+              <table className="w-full text-sm text-left text-gray-500">
+                <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0">
+                  <tr>
+                    <th scope="col" className="px-4 py-3">축제</th>
+                    <th scope="col" className="px-4 py-3">제목</th>
+                    <th scope="col" className="px-4 py-3">작성자</th>
+                    <th scope="col" className="px-4 py-3">답변</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {qnaStats?.recent_questions.map((question) => (
+                    <tr key={question.id} className="bg-white border-b hover:bg-gray-50">
+                      <td className="px-4 py-3 text-xs">{question.festival_name}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900 max-w-[150px] truncate">
+                        {question.title}
+                      </td>
+                      <td className="px-4 py-3">{question.author}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                          question.answer_count > 0
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {question.answer_count}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {(!qnaStats?.recent_questions || qnaStats.recent_questions.length === 0) && (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                        아직 등록된 질문이 없습니다.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Recent Answers Table */}
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">최근 답변</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left text-gray-500">
+              <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                <tr>
+                  <th scope="col" className="px-4 py-3">축제</th>
+                  <th scope="col" className="px-4 py-3">질문</th>
+                  <th scope="col" className="px-4 py-3">답변 내용</th>
+                  <th scope="col" className="px-4 py-3">작성자</th>
+                  <th scope="col" className="px-4 py-3">상태</th>
+                </tr>
+              </thead>
+              <tbody>
+                {qnaStats?.recent_answers.map((answer) => (
+                  <tr key={answer.id} className="bg-white border-b hover:bg-gray-50">
+                    <td className="px-4 py-3 text-xs">{answer.festival_name}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900 max-w-[150px] truncate">
+                      {answer.question_title}
+                    </td>
+                    <td className="px-4 py-3 max-w-[200px] truncate">{answer.content}</td>
+                    <td className="px-4 py-3">
+                      <span className={`${answer.author_role === 'admin' ? 'text-purple-600 font-semibold' : ''}`}>
+                        {answer.author}
+                        {answer.author_role === 'admin' && ' (관리자)'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {answer.is_accepted && (
+                        <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
+                          채택됨
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {(!qnaStats?.recent_answers || qnaStats.recent_answers.length === 0) && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                      아직 등록된 답변이 없습니다.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
 
