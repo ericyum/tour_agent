@@ -2,6 +2,7 @@
 
 import os
 import re
+import asyncio
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -290,8 +291,9 @@ class SentimentAnalysisUseCase:
         while (
             len(blog_results_list) < num_reviews and start_index < max_results_to_scan
         ):
-            api_results = search_naver_blog(
-                search_keyword, display=display_count, start=start_index
+            # 동기 API 호출을 별도 스레드에서 실행
+            api_results = await asyncio.to_thread(
+                search_naver_blog, search_keyword, display_count, start_index
             )
             if not api_results:
                 break
@@ -316,7 +318,9 @@ class SentimentAnalysisUseCase:
 
                     content = content[:30000]
 
-                    final_state = app_llm_graph.invoke(
+                    # 동기 블로킹 호출을 별도 스레드에서 실행하여 이벤트 루프 블로킹 방지
+                    final_state = await asyncio.to_thread(
+                        app_llm_graph.invoke,
                         {
                             "original_text": content,
                             "keyword": processed_festival_name,

@@ -158,4 +158,108 @@ export const searchNearby = async (
   return data
 }
 
+// Q&A APIs
+export interface Question {
+  id: number
+  title: string
+  content: string
+  views: number
+  created_at: string | null
+  updated_at: string | null
+  author: {
+    username: string
+    full_name: string | null
+  }
+  answer_count: number
+}
+
+export interface QuestionDetail extends Question {
+  user_id: number
+  answers: Answer[]
+}
+
+export interface Answer {
+  id: number
+  question_id: number
+  user_id: number
+  content: string
+  is_accepted: boolean
+  created_at: string | null
+  updated_at: string | null
+  author: {
+    username: string
+    full_name: string | null
+    role: string
+  }
+}
+
+export const getQuestions = async (limit: number = 50, offset: number = 0) => {
+  const { data } = await api.get('/qna/questions', { params: { limit, offset } })
+  return data as { questions: Question[]; total: number }
+}
+
+export const getQuestion = async (questionId: number) => {
+  const { data } = await api.get(`/qna/questions/${questionId}`)
+  return data as QuestionDetail
+}
+
+export const createQuestion = async (title: string, content: string, token: string) => {
+  const { data } = await api.post(
+    '/qna/questions',
+    { title, content },
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  return data as { id: number; message: string }
+}
+
+export const updateQuestion = async (questionId: number, title: string, content: string, token: string) => {
+  const { data } = await api.put(
+    `/qna/questions/${questionId}`,
+    { title, content },
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  return data as { message: string }
+}
+
+export const deleteQuestion = async (questionId: number, token: string) => {
+  const { data } = await api.delete(`/qna/questions/${questionId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return data as { message: string }
+}
+
+export const createAnswer = async (questionId: number, content: string, token: string) => {
+  const { data } = await api.post(
+    `/qna/questions/${questionId}/answers`,
+    { content },
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  return data as { id: number; message: string }
+}
+
+export const updateAnswer = async (answerId: number, content: string, token: string) => {
+  const { data } = await api.put(
+    `/qna/answers/${answerId}`,
+    { content },
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  return data as { message: string }
+}
+
+export const deleteAnswer = async (answerId: number, token: string) => {
+  const { data } = await api.delete(`/qna/answers/${answerId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return data as { message: string }
+}
+
+export const acceptAnswer = async (answerId: number, token: string) => {
+  const { data } = await api.post(
+    `/qna/answers/${answerId}/accept`,
+    {},
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  return data as { message: string }
+}
+
 export default api

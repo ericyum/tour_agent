@@ -1,14 +1,27 @@
 import os
+import sys
 import requests
 import re
+import asyncio
+import subprocess
+import json
+from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 from src.infrastructure.external_services.naver_search.naver_review_api import (
     search_naver_blog,
 )
-from playwright.async_api import async_playwright  # Original scraper used playwright
-from src.infrastructure.llm_client import get_llm_client  # Added LLM client import
+from src.infrastructure.llm_client import get_llm_client
 
 load_dotenv()
+
+# ThreadPoolExecutor for running subprocess calls
+_executor = ThreadPoolExecutor(max_workers=4)
+
+# Playwright 스크래퍼 스크립트 경로
+_SCRAPER_SCRIPT = os.path.join(
+    os.path.dirname(__file__),
+    "..", "..", "..", "infrastructure", "scraper", "playwright_scraper.py"
+)
 
 
 class NaverReviewAgent:
@@ -45,8 +58,9 @@ class NaverReviewAgent:
             len(reviews_with_content) < num_reviews
             and start_index < max_results_to_scan
         ):
-            blog_results_meta = search_naver_blog(
-                search_query, display=display_count, start=start_index
+            # 동기 API 호출을 별도 스레드에서 실행
+            blog_results_meta = await asyncio.to_thread(
+                search_naver_blog, search_query, display_count, start_index
             )
 
             if not blog_results_meta:
@@ -126,86 +140,57 @@ class NaverReviewAgent:
         )
         return llm_generated_summary, llm_generated_summary
 
+    def _scrape_blog_content_subprocess(self, url: str) -> tuple[str, list[str]]:
+        """
+        별도 프로세스에서 Playwright를 실행하여 블로그 본문과 이미지를 스크래핑합니다.
+        Windows 멀티워커 환경에서도 안정적으로 동작합니다.
+        """
+        print(f"DEBUG [subprocess]: Starting scrape for URL: {url}")
+        try:
+            # Python 실행 파일 경로
+            python_exe = sys.executable
+
+            # subprocess로 스크래퍼 스크립트 실행
+            result = subprocess.run(
+                [python_exe, _SCRAPER_SCRIPT, url],
+                capture_output=True,
+                text=True,
+                timeout=60,  # 60초 타임아웃
+                encoding='utf-8'
+            )
+
+            if result.returncode != 0:
+                print(f"DEBUG [subprocess]: Script error: {result.stderr}")
+                return f"스크래핑 스크립트 오류: {result.stderr}", []
+
+            # JSON 결과 파싱
+            output = result.stdout.strip()
+            if not output:
+                return "스크래핑 결과가 비어있습니다.", []
+
+            data = json.loads(output)
+            text_content = data.get("text_content", "")
+            image_urls = data.get("image_urls", [])
+
+            print(f"DEBUG [subprocess]: Success - got {len(text_content)} chars, {len(image_urls)} images")
+            return text_content, image_urls
+
+        except subprocess.TimeoutExpired:
+            print(f"DEBUG [subprocess]: Timeout for URL: {url}")
+            return "스크래핑 타임아웃 (60초 초과)", []
+        except json.JSONDecodeError as e:
+            print(f"DEBUG [subprocess]: JSON decode error: {e}")
+            return f"결과 파싱 오류: {e}", []
+        except Exception as e:
+            print(f"DEBUG [subprocess]: Exception: {type(e).__name__}: {e}")
+            return f"페이지에 접근하는 중 오류가 발생했습니다: {e}", []
+
     async def _scrape_blog_content(self, url: str) -> tuple[str, list[str]]:
         """
-        Playwright를 사용하여 주어진 URL의 블로그 본문 텍스트와 이미지 URL들을 스크래핑합니다.
+        subprocess 스크래핑을 ThreadPoolExecutor에서 실행하여 async 컨텍스트에서 non-blocking으로 호출합니다.
         """
-        text_content = ""
-        image_urls = []
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
-                await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-
-                main_frame = page
-                try:
-                    main_frame_element = await page.wait_for_selector(
-                        "iframe#mainFrame", timeout=5000
-                    )
-                    main_frame = await main_frame_element.content_frame()
-                    if main_frame is None:
-                        main_frame = page
-                except Exception:
-                    main_frame = page
-
-                content_selectors = [
-                    "div.se-main-container",
-                    "div.post-view",
-                    "#postViewArea",
-                ]
-                content_element = None
-                for selector in content_selectors:
-                    try:
-                        await main_frame.wait_for_selector(selector, timeout=5000)
-                        content_element = await main_frame.query_selector(selector)
-                        if content_element:
-                            text_content = await content_element.inner_text()
-                            if text_content.strip():
-                                # 이미지 찾기
-                                images = await content_element.query_selector_all("img")
-                                for img in images:
-                                    # 네이버 블로그는 lazy loading을 사용하므로 data-lazy-src, data-src, src 순으로 확인
-                                    lazy_src = await img.get_attribute("data-lazy-src")
-                                    data_src = await img.get_attribute("data-src")
-                                    regular_src = await img.get_attribute("src")
-
-                                    src = lazy_src or data_src or regular_src
-
-                                    if src and src.startswith("http"):
-                                        # Filter out emoticons/stickers
-                                        if (
-                                            "storep-phinf.pstatic.net" in src
-                                            and "ogq_" in src
-                                        ):
-                                            continue
-                                        # Filter out map images
-                                        if (
-                                            "simg.pstatic.net" in src
-                                            and "static.map" in src
-                                        ):
-                                            continue
-
-                                        # 썸네일 파라미터(?type=...)를 포함하여 원본 이미지 URL 확보
-                                        cleaned_src = src
-                                        if cleaned_src not in image_urls:
-                                            image_urls.append(cleaned_src)
-                                break  # 내용과 이미지를 찾았으면 중단
-                    except Exception:
-                        continue
-
-                await browser.close()
-
-                if not text_content.strip():
-                    return (
-                        "본문 내용을 찾을 수 없습니다. (지원되지 않는 블로그 구조일 수 있습니다)",
-                        [],
-                    )
-
-                return text_content, image_urls
-
-        except Exception as e:
-            return f"페이지에 접근하는 중 오류가 발생했습니다: {e}", []
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(_executor, self._scrape_blog_content_subprocess, url)
 
     async def _is_relevant_review(
         self, festival_name: str, blog_title: str, blog_content: str

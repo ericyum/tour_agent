@@ -14,7 +14,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import asyncio
 import matplotlib.pyplot as plt
 from PIL import Image
 
@@ -1250,6 +1249,288 @@ async def get_qna_statistics():
 
 
 # ============================================================================
+# Q&A Endpoints
+# ============================================================================
+
+class QuestionCreate(BaseModel):
+    title: str
+    content: str
+
+
+class QuestionUpdate(BaseModel):
+    title: str
+    content: str
+
+
+class AnswerCreate(BaseModel):
+    content: str
+
+
+class AnswerUpdate(BaseModel):
+    content: str
+
+
+@app.get("/api/qna/questions")
+async def get_all_questions(limit: int = 50, offset: int = 0):
+    """Get all questions (paginated)"""
+    try:
+        conn = get_db_connection()
+        cursor = get_cursor(conn)
+
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    q.id, q.title, q.content, q.views, q.created_at, q.updated_at,
+                    u.username, u.full_name,
+                    (SELECT COUNT(*) FROM answers WHERE question_id = q.id) as answer_count
+                FROM questions q
+                JOIN users u ON q.user_id = u.id
+                ORDER BY q.created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                (limit, offset),
+            )
+            rows = cursor.fetchall()
+
+            cursor.execute("SELECT COUNT(*) as cnt FROM questions")
+            total = cursor.fetchone()["cnt"]
+
+            questions = []
+            for row in rows:
+                questions.append({
+                    "id": row["id"],
+                    "title": row["title"],
+                    "content": row["content"][:200] + "..." if len(row["content"]) > 200 else row["content"],
+                    "views": row["views"],
+                    "created_at": str(row["created_at"]) if row["created_at"] else None,
+                    "updated_at": str(row["updated_at"]) if row["updated_at"] else None,
+                    "author": {
+                        "username": row["username"],
+                        "full_name": row["full_name"],
+                    },
+                    "answer_count": row["answer_count"],
+                })
+
+            return {"questions": questions, "total": total}
+        finally:
+            cursor.close()
+            release_connection(conn)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/qna/questions/{question_id}")
+async def get_question(question_id: int):
+    """Get a single question with its answers"""
+    from src.application.services.qna_service import get_question_by_id
+
+    result = get_question_by_id(question_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="질문을 찾을 수 없습니다")
+    return result
+
+
+@app.post("/api/qna/questions")
+async def create_question(
+    question: QuestionCreate,
+    authorization: str = Header(None)
+):
+    """Create a new question (requires authentication)"""
+    from src.application.services.qna_service import create_question as create_q
+
+    user = get_current_user_from_token(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다")
+
+    if not question.title.strip() or not question.content.strip():
+        raise HTTPException(status_code=400, detail="제목과 내용을 입력해주세요")
+
+    question_id = create_q(
+        festival_name="일반",  # Default category for general questions
+        user_id=user["user_id"],
+        title=question.title.strip(),
+        content=question.content.strip()
+    )
+
+    return {"id": question_id, "message": "질문이 등록되었습니다"}
+
+
+@app.put("/api/qna/questions/{question_id}")
+async def update_question(
+    question_id: int,
+    question: QuestionUpdate,
+    authorization: str = Header(None)
+):
+    """Update a question (only by author)"""
+    from src.application.services.qna_service import update_question as update_q, get_question_by_id
+
+    user = get_current_user_from_token(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다")
+
+    existing = get_question_by_id(question_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="질문을 찾을 수 없습니다")
+
+    if existing["user_id"] != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="수정 권한이 없습니다")
+
+    update_q(question_id, question.title.strip(), question.content.strip())
+    return {"message": "질문이 수정되었습니다"}
+
+
+@app.delete("/api/qna/questions/{question_id}")
+async def delete_question(
+    question_id: int,
+    authorization: str = Header(None)
+):
+    """Delete a question (only by author or admin)"""
+    from src.application.services.qna_service import delete_question as delete_q, get_question_by_id
+
+    user = get_current_user_from_token(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다")
+
+    existing = get_question_by_id(question_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="질문을 찾을 수 없습니다")
+
+    if existing["user_id"] != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="삭제 권한이 없습니다")
+
+    delete_q(question_id)
+    return {"message": "질문이 삭제되었습니다"}
+
+
+@app.post("/api/qna/questions/{question_id}/answers")
+async def create_answer(
+    question_id: int,
+    answer: AnswerCreate,
+    authorization: str = Header(None)
+):
+    """Create an answer for a question (admin only)"""
+    from src.application.services.qna_service import create_answer as create_a, get_question_by_id
+
+    user = get_current_user_from_token(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다")
+
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="관리자만 답변을 작성할 수 있습니다")
+
+    existing = get_question_by_id(question_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="질문을 찾을 수 없습니다")
+
+    if not answer.content.strip():
+        raise HTTPException(status_code=400, detail="답변 내용을 입력해주세요")
+
+    answer_id = create_a(question_id, user["user_id"], answer.content.strip())
+    return {"id": answer_id, "message": "답변이 등록되었습니다"}
+
+
+@app.put("/api/qna/answers/{answer_id}")
+async def update_answer(
+    answer_id: int,
+    answer: AnswerUpdate,
+    authorization: str = Header(None)
+):
+    """Update an answer (only by author)"""
+    from src.application.services.qna_service import update_answer as update_a
+
+    user = get_current_user_from_token(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다")
+
+    # Get answer to check ownership
+    conn = get_db_connection()
+    cursor = get_cursor(conn)
+    try:
+        cursor.execute("SELECT user_id FROM answers WHERE id = %s", (answer_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="답변을 찾을 수 없습니다")
+        if row["user_id"] != user["user_id"] and user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="수정 권한이 없습니다")
+    finally:
+        cursor.close()
+        release_connection(conn)
+
+    update_a(answer_id, answer.content.strip())
+    return {"message": "답변이 수정되었습니다"}
+
+
+@app.delete("/api/qna/answers/{answer_id}")
+async def delete_answer(
+    answer_id: int,
+    authorization: str = Header(None)
+):
+    """Delete an answer (only by author or admin)"""
+    from src.application.services.qna_service import delete_answer as delete_a
+
+    user = get_current_user_from_token(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다")
+
+    # Get answer to check ownership
+    conn = get_db_connection()
+    cursor = get_cursor(conn)
+    try:
+        cursor.execute("SELECT user_id FROM answers WHERE id = %s", (answer_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="답변을 찾을 수 없습니다")
+        if row["user_id"] != user["user_id"] and user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="삭제 권한이 없습니다")
+    finally:
+        cursor.close()
+        release_connection(conn)
+
+    delete_a(answer_id)
+    return {"message": "답변이 삭제되었습니다"}
+
+
+@app.post("/api/qna/answers/{answer_id}/accept")
+async def accept_answer(
+    answer_id: int,
+    authorization: str = Header(None)
+):
+    """Accept an answer (only by question author)"""
+    from src.application.services.qna_service import accept_answer as accept_a
+
+    user = get_current_user_from_token(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다")
+
+    # Get answer and question to check ownership
+    conn = get_db_connection()
+    cursor = get_cursor(conn)
+    try:
+        cursor.execute(
+            """
+            SELECT a.question_id, q.user_id as question_author_id
+            FROM answers a
+            JOIN questions q ON a.question_id = q.id
+            WHERE a.id = %s
+            """,
+            (answer_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="답변을 찾을 수 없습니다")
+        if row["question_author_id"] != user["user_id"] and user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="채택 권한이 없습니다")
+        question_id = row["question_id"]
+    finally:
+        cursor.close()
+        release_connection(conn)
+
+    accept_a(answer_id, question_id)
+    return {"message": "답변이 채택되었습니다"}
+
+
+# ============================================================================
 # Authentication & User Management Endpoints
 # ============================================================================
 
@@ -1775,8 +2056,11 @@ async def create_answer(
     answer: AnswerCreate,
     authorization: Optional[str] = Header(None)
 ):
-    """Create an answer to a question (requires authentication)"""
+    """Create an answer to a question (admin only)"""
     user_payload = require_auth(authorization)
+
+    if user_payload.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="관리자만 답변을 작성할 수 있습니다")
 
     try:
         answer_id = qna_service.create_answer(
@@ -2196,6 +2480,7 @@ if __name__ == "__main__":
     import multiprocessing
 
     # 워커 수 계산 (CPU 코어 수 기반, 최소 2, 최대 4)
+    # Playwright를 sync_api + ThreadPoolExecutor로 변경하여 Windows에서도 멀티 워커 지원
     workers = min(max(multiprocessing.cpu_count(), 2), 4)
 
     uvicorn.run(

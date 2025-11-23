@@ -1,5 +1,6 @@
 import traceback
 import re
+import asyncio
 # src/application/use_cases/analysis_use_case.py
 
 import os
@@ -65,7 +66,8 @@ class AnalysisUseCase:
         # --- 1. 1-Year Trend Graph ---
         today = datetime.today()
         start_date_yearly = today - timedelta(days=365)
-        trend_data_yearly = get_naver_trend(festival_name, start_date_yearly, today)
+        # 동기 API 호출을 별도 스레드에서 실행
+        trend_data_yearly = await asyncio.to_thread(get_naver_trend, festival_name, start_date_yearly, today)
 
         fig_trend_yearly, ax_yearly = plt.subplots(figsize=(10, 5))
         if trend_data_yearly:
@@ -111,8 +113,8 @@ class AnalysisUseCase:
                 if not is_future_event:
                     graph_start = center_date - timedelta(days=7)
                     graph_end = center_date + timedelta(days=7)
-                    trend_data_event = get_naver_trend(
-                        festival_name, graph_start, graph_end
+                    trend_data_event = await asyncio.to_thread(
+                        get_naver_trend, festival_name, graph_start, graph_end
                     )
 
                 # If no data was found (either because it's a future event or data is sparse), fallback to previous years
@@ -127,8 +129,8 @@ class AnalysisUseCase:
                         if graph_end > today:
                             continue
 
-                        trend_data_event = get_naver_trend(
-                            festival_name, graph_start, graph_end
+                        trend_data_event = await asyncio.to_thread(
+                            get_naver_trend, festival_name, graph_start, graph_end
                         )
                         if trend_data_event:
                             search_date = search_year
@@ -297,8 +299,10 @@ class AnalysisUseCase:
                 found_blogs_with_images < target_blog_count
                 and start_index < max_results_to_scan
             ):
-                blog_reviews = search_naver_blog(
-                    f"{processed_festival_name} 후기", display=display_count, start=start_index
+                # 동기 API 호출을 별도 스레드에서 실행
+                blog_reviews = await asyncio.to_thread(
+                    search_naver_blog,
+                    f"{processed_festival_name} 후기", display_count, start_index
                 )
                 if not blog_reviews:
                     break
@@ -338,23 +342,30 @@ class AnalysisUseCase:
 
                 start_index += display_count
 
-            local_image_paths = []
-            for i, img_url in enumerate(all_image_urls):
+            # 이미지 다운로드를 별도 스레드에서 실행하기 위한 헬퍼 함수
+            def download_image(img_url, index, save_dir):
                 try:
                     response = requests.get(img_url, stream=True, timeout=10)
                     response.raise_for_status()
                     file_ext = os.path.splitext(img_url.split("?")[0])[-1]
                     if not file_ext or len(file_ext) > 5:
                         file_ext = ".jpg"
-                    file_name = f"image_{i+1}{file_ext}"
-                    file_path = os.path.join(image_save_dir, file_name)
+                    file_name = f"image_{index+1}{file_ext}"
+                    file_path = os.path.join(save_dir, file_name)
                     with open(file_path, "wb") as f:
                         for chunk in response.iter_content(chunk_size=8192):
                             f.write(chunk)
-                    local_image_paths.append(file_path)
+                    return file_path
                 except requests.exceptions.RequestException as e:
                     print(f"이미지 다운로드 실패: {img_url}, 오류: {e}")
-                    continue
+                    return None
+
+            local_image_paths = []
+            for i, img_url in enumerate(all_image_urls):
+                # 동기 이미지 다운로드를 별도 스레드에서 실행
+                file_path = await asyncio.to_thread(download_image, img_url, i, image_save_dir)
+                if file_path:
+                    local_image_paths.append(file_path)
 
             return local_image_paths, "\n".join(all_image_urls)
         except Exception as e:

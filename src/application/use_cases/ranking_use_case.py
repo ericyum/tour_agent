@@ -21,12 +21,13 @@ class RankingUseCase:
     def __init__(self, naver_supervisor: NaverReviewAgent):
         self.naver_supervisor = naver_supervisor
 
-    def _get_trend_score(self, keyword: str, days: int) -> float:
+    async def _get_trend_score(self, keyword: str, days: int) -> float:
         if not keyword:
             return 0.0
         today = datetime.today()
         start_date = today - timedelta(days=days)
-        trend_data = get_naver_trend(keyword, start_date, today)
+        # 동기 API 호출을 별도 스레드에서 실행
+        trend_data = await asyncio.to_thread(get_naver_trend, keyword, start_date, today)
         if not trend_data:
             return 0.0
         df = pd.DataFrame(trend_data)
@@ -41,8 +42,9 @@ class RankingUseCase:
             return 50.0, []
 
         search_keyword = f"{keyword} 후기"
-        api_results = search_naver_blog(
-            search_keyword, display=num_reviews + 5
+        # 동기 API 호출을 별도 스레드에서 실행
+        api_results = await asyncio.to_thread(
+            search_naver_blog, search_keyword, num_reviews + 5
         )  # Add buffer
         if not api_results:
             return 50.0, []
@@ -76,7 +78,9 @@ class RankingUseCase:
                 if len(content) > max_content_length:
                     content = content[:max_content_length]
 
-                final_state = app_llm_graph.invoke(
+                # 동기 LLM 호출을 별도 스레드에서 실행
+                final_state = await asyncio.to_thread(
+                    app_llm_graph.invoke,
                     {
                         "original_text": content,
                         "keyword": keyword,
@@ -133,7 +137,8 @@ class RankingUseCase:
             return "키워드가 없어 트렌드 분석 불가"
         today = datetime.today()
         start_date = today - timedelta(days=90)
-        trend_data = get_naver_trend(keyword, start_date, today)
+        # 동기 API 호출을 별도 스레드에서 실행
+        trend_data = await asyncio.to_thread(get_naver_trend, keyword, start_date, today)
         if not trend_data:
             return "트렌드 데이터 없음"
         df = pd.DataFrame(trend_data)
@@ -421,8 +426,8 @@ class RankingUseCase:
                     sub_title = sub.get("subname", "")
                     if not sub_title:
                         continue
-                    q_trend_scores.append(self._get_trend_score(sub_title, days=90))
-                    y_trend_scores.append(self._get_trend_score(sub_title, days=365))
+                    q_trend_scores.append(await self._get_trend_score(sub_title, days=90))
+                    y_trend_scores.append(await self._get_trend_score(sub_title, days=365))
                     s_score, judgments = await self._get_sentiment_score(
                         sub_title, num_reviews
                     )
@@ -451,8 +456,8 @@ class RankingUseCase:
                 )
             else:
                 title = place.get("title", "")
-                quarterly_trend_score = self._get_trend_score(title, days=90)
-                yearly_trend_score = self._get_trend_score(title, days=365)
+                quarterly_trend_score = await self._get_trend_score(title, days=90)
+                yearly_trend_score = await self._get_trend_score(title, days=365)
                 sentiment_score, judgments = await self._get_sentiment_score(
                     title, num_reviews
                 )
@@ -581,8 +586,8 @@ class RankingUseCase:
             festival["time_score"] = round(time_score * 100, 2)
 
             # 2. Calculate Trend and Sentiment Scores
-            quarterly_trend_score = self._get_trend_score(title, days=90)
-            yearly_trend_score = self._get_trend_score(title, days=365)
+            quarterly_trend_score = await self._get_trend_score(title, days=90)
+            yearly_trend_score = await self._get_trend_score(title, days=365)
             sentiment_score, judgments = await self._get_sentiment_score(
                 title, num_reviews
             )
