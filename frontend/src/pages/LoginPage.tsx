@@ -138,12 +138,6 @@ export default function LoginPage() {
         <div className="mt-6">
           <GoogleLoginButton onError={setError} />
         </div>
-
-        <div className="text-center text-sm text-gray-600">
-          <p>테스트 계정</p>
-          <p className="mt-1">관리자: admin / admin123</p>
-          <p>일반 회원: testuser / user123</p>
-        </div>
       </motion.div>
     </div>
   );

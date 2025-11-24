@@ -53,6 +53,7 @@ CACHE_EXPIRY_BY_TYPE = {
     "ranking": 30 * 24 * 60 * 60,  # 30일
     "render": 30 * 24 * 60 * 60,  # 30일
     "course": 7 * 24 * 60 * 60,  # 7일
+    "festival_score": 30 * 24 * 60 * 60,  # 30일 (단위 캐싱용 개별 축제 점수)
 }
 
 

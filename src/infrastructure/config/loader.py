@@ -83,22 +83,38 @@ def load_festival_categories_and_maps():
 
 
 def get_korean_font():
+    """한글 폰트 경로를 찾습니다 (Windows/Linux/Docker 호환)."""
+    # 1. 명시적 경로 우선 탐색 (Docker/Linux 환경 포함)
+    font_candidates = [
+        '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',  # Docker/Linux (fonts-nanum)
+        '/usr/share/fonts/opentype/nanum/NanumGothic.ttf',  # 일부 Linux
+        'C:/Windows/Fonts/malgun.ttf',                       # Windows
+        'C:/Windows/Fonts/Malgun.ttf',
+    ]
+
+    for path in font_candidates:
+        if os.path.exists(path):
+            print(f"[Loader] 한글 폰트 발견: {path}")
+            return path
+
+    # 2. matplotlib font_manager로 탐색
     try:
         font_path = font_manager.findfont(
             font_manager.FontProperties(family="Malgun Gothic")
         )
-        if os.path.exists(font_path):
+        if font_path and os.path.exists(font_path) and "DejaVu" not in font_path:
             return font_path
     except:
         pass
+
+    # 3. 시스템 폰트 목록에서 한글 폰트 탐색
     font_list = font_manager.findSystemFonts(fontpaths=None, fontext="ttf")
     for font in font_list:
-        if (
-            "gothic" in font.lower()
-            or "gulim" in font.lower()
-            or "apple" in font.lower()
-        ):
+        font_lower = font.lower()
+        if "nanum" in font_lower or "gothic" in font_lower or "gulim" in font_lower:
+            print(f"[Loader] 시스템 폰트 탐색으로 발견: {font}")
             return font
+
     print("Warning: Korean font not found. Visualization text may be broken.")
     return None
 

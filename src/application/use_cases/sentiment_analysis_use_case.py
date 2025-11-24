@@ -13,7 +13,7 @@ import json
 from collections import Counter
 
 # Custom Module Imports
-from application.agents.naver_review.naver_review_agent import NaverReviewAgent
+from src.application.agents.naver_review.naver_review_agent import NaverReviewAgent
 from src.infrastructure.external_services.naver_search.naver_review_api import (
     search_naver_blog,
 )

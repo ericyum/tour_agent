@@ -4,6 +4,9 @@ import re
 import json
 from datetime import date, timedelta
 
+# Rate Limiter 임포트
+from src.infrastructure.rate_limiter import rate_limiter
+
 # .env 파일에서 네이버 API 키 로드
 # 블로그 검색 API
 NAVER_BLOG_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
@@ -27,11 +30,14 @@ def search_naver_blog(query, display=5, start=1):
         print("네이버 블로그 API 인증 정보가 .env 파일에 설정되지 않았습니다.")
         return []
 
+    # Rate limiting 적용
+    rate_limiter.wait("naver_search")
+
     headers = {
         "X-Naver-Client-Id": NAVER_BLOG_CLIENT_ID,
         "X-Naver-Client-Secret": NAVER_BLOG_CLIENT_SECRET,
     }
-    
+
     params = {
         "query": query,
         "display": display,
@@ -67,6 +73,9 @@ def get_naver_trend(keyword, start_date, end_date):
     if not NAVER_TREND_CLIENT_ID or not NAVER_TREND_CLIENT_SECRET:
         print("네이버 트렌드 API 인증 정보가 .env 파일에 설정되지 않았습니다.")
         return None
+
+    # Rate limiting 적용
+    rate_limiter.wait("naver_trend")
 
     headers = {
         "X-Naver-Client-Id": NAVER_TREND_CLIENT_ID,

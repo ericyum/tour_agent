@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 # Custom Module Imports
-from application.agents.naver_review.naver_review_agent import NaverReviewAgent
+from src.application.agents.naver_review.naver_review_agent import NaverReviewAgent
 from src.infrastructure.external_services.naver_search.naver_review_api import (
     get_naver_trend,
     search_naver_blog,
@@ -576,33 +576,54 @@ class RankingUseCase:
         if not festivals_list:
             return [], ""
 
+        # 캐시 매니저 임포트 (단위 캐싱 활용)
+        from src.infrastructure.cache_manager import load_from_cache
+
         async def process_festival(festival):
             title = festival.get("title", "")
             start_date = festival.get("eventstartdate")
             end_date = festival.get("eventenddate")
 
-            # 1. Calculate Time Score
-            time_score = self._get_time_score(start_date, end_date)
-            festival["time_score"] = round(time_score * 100, 2)
+            # [단위 캐싱] 먼저 캐시된 개별 점수 확인
+            # 최대값(50)으로 캐시된 점수가 있으면 사용
+            cached_score = load_from_cache("festival_score", festival_name=title, num_reviews=50)
 
-            # 2. Calculate Trend and Sentiment Scores
-            quarterly_trend_score = await self._get_trend_score(title, days=90)
-            yearly_trend_score = await self._get_trend_score(title, days=365)
-            sentiment_score, judgments = await self._get_sentiment_score(
-                title, num_reviews
-            )
+            if cached_score:
+                # 캐시된 점수 사용 (즉시 응답!)
+                festival["time_score"] = cached_score.get("time_score", 0)
+                festival["sentiment_score"] = cached_score.get("sentiment_score", 50)
+                festival["quarterly_trend_score"] = cached_score.get("quarterly_trend_score", 0)
+                festival["yearly_trend_score"] = cached_score.get("yearly_trend_score", 0)
+                festival["trend_reason"] = cached_score.get("trend_reason", "")
+                festival["sentiment_reason"] = cached_score.get("sentiment_reason", "")
 
-            festival["quarterly_trend_score"] = round(quarterly_trend_score, 2)
-            festival["yearly_trend_score"] = round(yearly_trend_score, 2)
-            festival["sentiment_score"] = round(sentiment_score, 2)
+                # 시간 점수만 재계산 (현재 날짜 기준으로 변할 수 있음)
+                time_score = self._get_time_score(start_date, end_date)
+                festival["time_score"] = round(time_score * 100, 2)
+            else:
+                # 캐시 미스: 실시간 계산
+                # 1. Calculate Time Score
+                time_score = self._get_time_score(start_date, end_date)
+                festival["time_score"] = round(time_score * 100, 2)
 
-            # Get reasons for scores
-            trend_reason, sentiment_reason = await asyncio.gather(
-                self._summarize_trend_reasons(title),
-                self._summarize_sentiment_reasons(judgments, title),
-            )
-            festival["trend_reason"] = trend_reason
-            festival["sentiment_reason"] = sentiment_reason
+                # 2. Calculate Trend and Sentiment Scores
+                quarterly_trend_score = await self._get_trend_score(title, days=90)
+                yearly_trend_score = await self._get_trend_score(title, days=365)
+                sentiment_score, judgments = await self._get_sentiment_score(
+                    title, num_reviews
+                )
+
+                festival["quarterly_trend_score"] = round(quarterly_trend_score, 2)
+                festival["yearly_trend_score"] = round(yearly_trend_score, 2)
+                festival["sentiment_score"] = round(sentiment_score, 2)
+
+                # Get reasons for scores
+                trend_reason, sentiment_reason = await asyncio.gather(
+                    self._summarize_trend_reasons(title),
+                    self._summarize_sentiment_reasons(judgments, title),
+                )
+                festival["trend_reason"] = trend_reason
+                festival["sentiment_reason"] = sentiment_reason
 
             # 3. Calculate Final Weighted Score
             w_time = 0.6

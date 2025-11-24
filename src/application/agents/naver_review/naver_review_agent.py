@@ -11,6 +11,7 @@ from src.infrastructure.external_services.naver_search.naver_review_api import (
     search_naver_blog,
 )
 from src.infrastructure.llm_client import get_llm_client
+from src.infrastructure.rate_limiter import rate_limiter
 
 load_dotenv()
 
@@ -145,6 +146,9 @@ class NaverReviewAgent:
         별도 프로세스에서 Playwright를 실행하여 블로그 본문과 이미지를 스크래핑합니다.
         Windows 멀티워커 환경에서도 안정적으로 동작합니다.
         """
+        # Rate limiting 적용 (블로그 스크래핑)
+        rate_limiter.wait("naver_blog_scrape")
+
         print(f"DEBUG [subprocess]: Starting scrape for URL: {url}")
         try:
             # Python 실행 파일 경로

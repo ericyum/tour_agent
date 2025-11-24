@@ -1,4 +1,4 @@
-# celery_app.py
+# src/celery/app.py
 """
 Celery 비동기 작업 큐 설정
 
@@ -6,15 +6,16 @@ Celery 비동기 작업 큐 설정
 사용자가 브라우저를 닫아도 작업은 계속 실행되고 결과가 캐시됩니다.
 
 실행 방법:
-    celery -A celery_app worker --loglevel=info --pool=solo  # Windows
-    celery -A celery_app worker --loglevel=info              # Linux/Mac
+    celery -A src.celery.app worker --loglevel=info --pool=solo  # Windows
+    celery -A src.celery.app worker --loglevel=info              # Linux/Mac
 
 모니터링 (Flower):
-    celery -A celery_app flower --port=5555
+    celery -A src.celery.app flower --port=5555
 """
 
 import os
 from celery import Celery
+from celery.schedules import crontab
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,7 +28,7 @@ celery_app = Celery(
     "festmoment",
     broker=REDIS_URL,
     backend=REDIS_URL,
-    include=["celery_tasks"],  # 작업 모듈
+    include=["src.celery.tasks", "src.celery.precache"],  # 작업 모듈
 )
 
 # Celery 설정
@@ -50,11 +51,25 @@ celery_app.conf.update(
 
     # 동시성 설정
     worker_prefetch_multiplier=1,  # 한 번에 하나씩 가져옴
-    worker_concurrency=2,  # 동시 작업 수
+    worker_concurrency=1,  # 동시 작업 수 (Rate limiting 때문에 1로 설정)
 
     # 재시도 설정
     task_default_retry_delay=60,  # 1분 후 재시도
     task_max_retries=3,  # 최대 3번 재시도
+
+    # Celery Beat 스케줄 설정
+    beat_schedule={
+        # 매일 오전 3시: 활성 축제 캐싱 (현재 진행 중 + 곧 시작할 축제)
+        "daily-active-festivals-precache": {
+            "task": "daily_precache_active_festivals",
+            "schedule": crontab(hour=3, minute=0),
+        },
+        # 매주 일요일 오전 2시: 전체 축제 캐싱
+        "weekly-all-festivals-precache": {
+            "task": "weekly_precache_all_festivals",
+            "schedule": crontab(hour=2, minute=0, day_of_week=0),  # 일요일
+        },
+    },
 )
 
 

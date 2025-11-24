@@ -1,4 +1,4 @@
-# celery_tasks.py
+# src/celery/tasks.py
 """
 Celery 비동기 작업 정의
 
@@ -11,10 +11,11 @@ import sys
 import asyncio
 from typing import Dict, Any, Optional
 
-# 프로젝트 루트를 path에 추가
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 프로젝트 루트를 path에 추가 (src/celery에서 2단계 상위)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, PROJECT_ROOT)
 
-from celery_app import celery_app
+from src.celery.app import celery_app
 from src.infrastructure.cache_manager import (
     save_task_progress,
     save_task_result,

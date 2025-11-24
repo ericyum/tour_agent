@@ -12,8 +12,10 @@ from datetime import datetime, timedelta
 from collections import Counter
 
 # Visualization and NLP
+import matplotlib
+matplotlib.use('Agg')  # UI 백엔드가 없는 환경을 위한 설정
 import matplotlib.pyplot as plt
-from matplotlib import font_manager
+from matplotlib import font_manager, rc
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from wordcloud import WordCloud
@@ -25,7 +27,47 @@ from src.infrastructure.external_services.naver_search.naver_review_api import (
     search_naver_blog,
 )
 from src.application.services.festival_service import get_festival_details_by_title
-from application.agents.naver_review.naver_review_agent import NaverReviewAgent
+from src.application.agents.naver_review.naver_review_agent import NaverReviewAgent
+
+
+def _setup_matplotlib_korean_font():
+    """한글 폰트를 matplotlib에 전역 설정합니다 (Windows/Linux/Docker 호환)."""
+    font_path = None
+
+    # 1. 폰트 경로 순차 탐색
+    font_candidates = [
+        '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',  # Docker/Linux (fonts-nanum)
+        '/usr/share/fonts/opentype/nanum/NanumGothic.ttf',  # 일부 Linux
+        'C:/Windows/Fonts/malgun.ttf',                       # Windows
+        'C:/Windows/Fonts/Malgun.ttf',
+    ]
+
+    for path in font_candidates:
+        if os.path.exists(path):
+            font_path = path
+            break
+
+    # 2. 폰트 등록 및 전역 설정
+    if font_path:
+        font_manager.fontManager.addfont(font_path)
+        font_prop = font_manager.FontProperties(fname=font_path)
+        rc('font', family=font_prop.get_name())
+        print(f"[AnalysisUseCase] 한글 폰트 설정 완료: {font_path}")
+    else:
+        # Fallback: 시스템에서 자동 탐색
+        try:
+            rc('font', family='NanumGothic')
+        except:
+            try:
+                rc('font', family='Malgun Gothic')
+            except:
+                print("[AnalysisUseCase] Warning: 한글 폰트를 찾을 수 없습니다.")
+
+    plt.rcParams['axes.unicode_minus'] = False  # 마이너스 부호 깨짐 방지
+
+
+# 모듈 로드 시 폰트 설정
+_setup_matplotlib_korean_font()
 
 
 class AnalysisUseCase:
@@ -56,11 +98,7 @@ class AnalysisUseCase:
         if plt is None:
             return None, None, "`matplotlib` 라이브러리가 설치되지 않았습니다."
 
-        font_properties = (
-            font_manager.FontProperties(fname=self.font_path)
-            if self.font_path
-            else None
-        )
+        # 전역 폰트 설정을 사용하므로 font_properties는 더 이상 필요하지 않음
         details = get_festival_details_by_title(festival_name)
 
         # --- 1. 1-Year Trend Graph ---
@@ -76,7 +114,6 @@ class AnalysisUseCase:
             ax_yearly.plot(df["period"], df["ratio"])
             ax_yearly.set_title(
                 f"'{festival_name}' 최근 1년 검색량 트렌드",
-                fontproperties=font_properties,
                 fontsize=16,
             )
             ax_yearly.tick_params(axis="x", rotation=30)
@@ -87,7 +124,6 @@ class AnalysisUseCase:
                 "트렌드 데이터 없음",
                 ha="center",
                 va="center",
-                fontproperties=font_properties,
             )
         plt.tight_layout()
         buf_trend_yearly = io.BytesIO()
@@ -160,7 +196,6 @@ class AnalysisUseCase:
                         "기간 트렌드 데이터 없음 (최근 3년간 데이터 부족)",
                         ha="center",
                         va="center",
-                        fontproperties=font_properties,
                     )
             else:
                 ax_event.text(
@@ -169,7 +204,6 @@ class AnalysisUseCase:
                     "날짜 형식 오류",
                     ha="center",
                     va="center",
-                    fontproperties=font_properties,
                 )
         else:
             ax_event.text(
@@ -178,10 +212,9 @@ class AnalysisUseCase:
                 "축제 시작일 정보 없음",
                 ha="center",
                 va="center",
-                fontproperties=font_properties,
             )
 
-        ax_event.set_title(graph_title, fontproperties=font_properties, fontsize=16)
+        ax_event.set_title(graph_title, fontsize=16)
         plt.tight_layout()
         buf_trend_event = io.BytesIO()
         fig_trend_event.savefig(buf_trend_event, format="png")

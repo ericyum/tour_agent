@@ -1,0 +1,56 @@
+# .dockerignore
+# Docker 빌드 시 제외할 파일/폴더
+
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Node.js (프론트엔드)
+frontend/node_modules
+frontend/.next
+frontend/out
+frontend/build
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# 테스트/문서
+tests/
+docs/
+*.md
+!README.md
+
+# 캐시 및 임시 파일
+cache/
+*.cache
+temp_img/
+temp_images/
+*.log
+
+# 데이터베이스
+*.db
+*.sqlite3
+
+# 로컬 설정
+.env.local
+.env.*.local
+
+# 대용량 데이터 폴더
+data/
+datasets/
+models/

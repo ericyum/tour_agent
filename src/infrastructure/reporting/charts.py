@@ -2,17 +2,45 @@ import matplotlib
 matplotlib.use('Agg') # UI 백엔드가 없는 환경을 위한 설정
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 from matplotlib.figure import Figure
 from matplotlib import font_manager, rc
 from matplotlib.ticker import MaxNLocator
 
 def setup_matplotlib_font():
-    """한글 폰트를 설정합니다."""
-    try:
-        rc('font', family='Malgun Gothic')
-    except:
-        print("Malgun Gothic 폰트를 찾을 수 없습니다. 다른 한글 폰트로 설정해주세요.")
-    plt.rcParams['axes.unicode_minus'] = False # 마이너스 부호 깨짐 방지
+    """한글 폰트를 설정합니다 (Windows/Linux/Docker 호환)."""
+    font_path = None
+
+    # 1. 폰트 경로 순차 탐색
+    font_candidates = [
+        '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',  # Docker/Linux (fonts-nanum)
+        '/usr/share/fonts/opentype/nanum/NanumGothic.ttf',  # 일부 Linux
+        'C:/Windows/Fonts/malgun.ttf',                       # Windows
+        'C:/Windows/Fonts/Malgun.ttf',
+    ]
+
+    for path in font_candidates:
+        if os.path.exists(path):
+            font_path = path
+            break
+
+    # 2. 폰트 등록 및 설정
+    if font_path:
+        font_manager.fontManager.addfont(font_path)
+        font_prop = font_manager.FontProperties(fname=font_path)
+        rc('font', family=font_prop.get_name())
+        print(f"[Charts] 한글 폰트 설정 완료: {font_path}")
+    else:
+        # Fallback: 시스템에서 자동 탐색
+        try:
+            rc('font', family='Malgun Gothic')
+        except:
+            try:
+                rc('font', family='NanumGothic')
+            except:
+                print("[Charts] Warning: 한글 폰트를 찾을 수 없습니다.")
+
+    plt.rcParams['axes.unicode_minus'] = False  # 마이너스 부호 깨짐 방지
 
 # 모듈 로드 시 폰트 설정
 setup_matplotlib_font()
