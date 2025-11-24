@@ -1,7 +1,8 @@
 // User behavior tracking utility for MVP analytics
 import { useAuthStore } from '@/store/useAuthStore';
 
-const API_BASE_URL = 'http://localhost:8000';
+// API URL configuration for different environments
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Get or create guest user identifier (Guest1, Guest2, etc.)
 export const getGuestUserId = (): string => {

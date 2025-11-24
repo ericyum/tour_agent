@@ -48,4 +48,4 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
 # Celery 워커 실행
-CMD ["celery", "-A", "celery_app", "worker", "--loglevel=info", "--pool=solo"]
+CMD ["celery", "-A", "src.celery.app", "worker", "--loglevel=info", "--pool=solo"]

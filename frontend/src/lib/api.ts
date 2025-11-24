@@ -13,8 +13,15 @@ import type {
   ReviewSummary,
 } from '@/types'
 
+// API URL configuration for different environments
+// - Development: Uses Vite proxy (/api -> http://localhost:8000)
+// - Production: Uses VITE_API_URL environment variable
+const API_BASE_URL = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/api`
+  : '/api'
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE_URL,
   timeout: 0, // No timeout - wait until completion or actual error
 })
 

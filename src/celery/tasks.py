@@ -66,24 +66,15 @@ def analyze_sentiment_task(self, festival_name: str, num_reviews: int = 10) -> D
 
         # Use Case 임포트 (지연 임포트로 순환 참조 방지)
         from src.application.use_cases.sentiment_analysis_use_case import SentimentAnalysisUseCase
-        from src.application.agents.naver_review.naver_supervisor import NaverReviewSupervisor
+        from src.application.agents.naver_review.naver_review_agent import NaverReviewAgent
 
-        naver_supervisor = NaverReviewSupervisor()
-        use_case = SentimentAnalysisUseCase(naver_supervisor)
-
-        # 진행률 콜백 함수
-        def progress_callback(current: int, total: int, message: str):
-            # 10% ~ 80% 사이에서 진행률 업데이트
-            progress = 10 + int((current / total) * 70)
-            save_task_progress(task_id, progress, "running", message)
+        naver_agent = NaverReviewAgent()
+        use_case = SentimentAnalysisUseCase(naver_agent)
 
         # 3. 비동기 분석 실행
+        save_task_progress(task_id, 30, "running", "리뷰 분석 중...")
         result = run_async(
-            use_case.analyze_sentiment_with_progress(
-                festival_name,
-                num_reviews,
-                progress_callback=progress_callback
-            )
+            use_case.analyze_sentiment(festival_name, num_reviews)
         )
 
         # 4. 워드클라우드 생성
@@ -92,7 +83,7 @@ def analyze_sentiment_task(self, festival_name: str, num_reviews: int = 10) -> D
         from io import BytesIO
         import base64
 
-        analysis_use_case = AnalysisUseCase(naver_supervisor)
+        analysis_use_case = AnalysisUseCase(naver_agent)
         wc_image, _ = run_async(
             analysis_use_case.generate_word_cloud(festival_name, num_reviews)
         )
@@ -183,24 +174,15 @@ def analyze_ranking_task(
         save_task_progress(task_id, 10, "running", "축제 분석 준비 중...")
 
         from src.application.use_cases.ranking_use_case import RankingUseCase
-        from src.application.agents.naver_review.naver_supervisor import NaverReviewSupervisor
+        from src.application.agents.naver_review.naver_review_agent import NaverReviewAgent
 
-        naver_supervisor = NaverReviewSupervisor()
-        use_case = RankingUseCase(naver_supervisor)
-
-        # 진행률 콜백
-        def progress_callback(current: int, total: int, festival_name: str):
-            progress = 10 + int((current / total) * 80)
-            save_task_progress(task_id, progress, "running", f"{festival_name} 분석 중... ({current}/{total})")
+        naver_agent = NaverReviewAgent()
+        use_case = RankingUseCase(naver_agent)
 
         # 3. 분석 실행
+        save_task_progress(task_id, 30, "running", "축제 랭킹 분석 중...")
         result = run_async(
-            use_case.rank_festivals_with_progress(
-                festivals,
-                num_reviews,
-                top_n,
-                progress_callback=progress_callback
-            )
+            use_case.rank_festivals(festivals, num_reviews, top_n)
         )
 
         # 4. 캐시 저장
@@ -259,12 +241,20 @@ def render_ai_image_task(
         # 2. 렌더링 시작
         save_task_progress(task_id, 20, "running", "AI 이미지 생성 중...")
 
-        from src.application.use_cases.ai_render_use_case import AIRenderUseCase
-        use_case = AIRenderUseCase()
+        from src.application.use_cases.rendering_use_case import RenderingUseCase
+        from src.application.services.festival_service import get_festival_details_by_title
+        from src.infrastructure.config.loader import DF_SPLIT, DF_CAMERA
+
+        use_case = RenderingUseCase(df_split=DF_SPLIT, df_camera=DF_CAMERA)
+
+        # 축제 상세 정보 가져오기
+        festival_details = get_festival_details_by_title(festival_name)
+        if not festival_details:
+            raise ValueError(f"축제를 찾을 수 없습니다: {festival_name}")
 
         # 3. 렌더링 실행
         save_task_progress(task_id, 40, "running", "Vision 모델 처리 중...")
-        result = run_async(use_case.render_festival_image(festival_name, prompt))
+        result = run_async(use_case.generate_festival_renderings(festival_details))
 
         # 4. 캐시 저장
         save_task_progress(task_id, 90, "running", "결과 저장 중...")
@@ -311,12 +301,12 @@ def generate_wordcloud_task(
         save_task_progress(task_id, 20, "running", "블로그 리뷰 수집 중...")
 
         from src.application.use_cases.analysis_use_case import AnalysisUseCase
-        from src.application.agents.naver_review.naver_supervisor import NaverReviewSupervisor
+        from src.application.agents.naver_review.naver_review_agent import NaverReviewAgent
         from io import BytesIO
         import base64
 
-        naver_supervisor = NaverReviewSupervisor()
-        use_case = AnalysisUseCase(naver_supervisor)
+        naver_agent = NaverReviewAgent()
+        use_case = AnalysisUseCase(naver_agent)
 
         # 3. 워드클라우드 생성
         save_task_progress(task_id, 50, "running", "워드클라우드 생성 중...")

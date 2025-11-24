@@ -24,8 +24,9 @@ import argparse
 import sys
 import os
 
-# 프로젝트 루트를 path에 추가
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 프로젝트 루트를 path에 추가 (scripts 폴더에서 한 단계 상위)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
 
 
 def main():
@@ -51,7 +52,7 @@ def main():
 
     if args.sync:
         # 동기적으로 직접 실행 (디버깅용)
-        from precache_tasks import precache_all_festivals
+        from src.celery.precache import precache_all_festivals
         result = precache_all_festivals(
             num_reviews=args.num_reviews,
             skip_if_cached=not args.force,
@@ -64,7 +65,7 @@ def main():
         print(f"  - 스킵: {result['skipped']}")
     else:
         # Celery 태스크로 비동기 실행
-        from precache_tasks import precache_all_festivals
+        from src.celery.precache import precache_all_festivals
 
         task = precache_all_festivals.delay(
             num_reviews=args.num_reviews,
@@ -77,7 +78,7 @@ def main():
         print(f"태스크 ID: {task.id}")
         print(f"\n진행 상황 확인:")
         print(f"  - Flower 대시보드: http://localhost:5555")
-        print(f"  - 또는: celery -A celery_app inspect active")
+        print(f"  - 또는: celery -A src.celery.app inspect active")
 
 
 if __name__ == "__main__":

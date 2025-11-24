@@ -54,7 +54,7 @@ from src.application.supervisors.db_search_supervisor import db_search_graph
 from src.application.supervisors.course_validation_supervisor import (
     course_validation_graph,
 )
-from application.agents.naver_review.naver_review_agent import NaverReviewAgent
+from src.application.agents.naver_review.naver_review_agent import NaverReviewAgent
 from src.application.use_cases.analysis_use_case import AnalysisUseCase
 from src.application.use_cases.sentiment_analysis_use_case import (
     SentimentAnalysisUseCase,
@@ -2270,7 +2270,7 @@ async def get_system_status():
 
     # Celery 상태 확인
     try:
-        from celery_app import celery_app
+        from src.celery.app import celery_app
         inspect = celery_app.control.inspect()
         active = inspect.active()
         status["celery_available"] = active is not None
@@ -2291,7 +2291,7 @@ async def start_async_sentiment_analysis(request: AsyncTaskRequest):
         )
 
     try:
-        from celery_tasks import analyze_sentiment_task
+        from src.celery.tasks import analyze_sentiment_task
 
         # Celery 작업 시작
         task = analyze_sentiment_task.delay(
@@ -2320,7 +2320,7 @@ async def start_async_ranking_analysis(request: AsyncRankingRequest):
         )
 
     try:
-        from celery_tasks import analyze_ranking_task
+        from src.celery.tasks import analyze_ranking_task
 
         task = analyze_ranking_task.delay(
             request.festivals,
@@ -2349,7 +2349,7 @@ async def start_async_wordcloud(request: AsyncTaskRequest):
         )
 
     try:
-        from celery_tasks import generate_wordcloud_task
+        from src.celery.tasks import generate_wordcloud_task
 
         task = generate_wordcloud_task.delay(
             request.festival_name,
@@ -2378,7 +2378,7 @@ async def get_async_task_progress(task_id: str):
     if not progress_data:
         # Celery에서 직접 상태 확인
         try:
-            from celery_app import celery_app
+            from src.celery.app import celery_app
             from celery.result import AsyncResult
 
             result = AsyncResult(task_id, app=celery_app)
@@ -2444,7 +2444,7 @@ async def get_async_task_result(task_id: str):
 
     # Celery에서 결과 확인
     try:
-        from celery_app import celery_app
+        from src.celery.app import celery_app
         from celery.result import AsyncResult
 
         result = AsyncResult(task_id, app=celery_app)
@@ -2473,6 +2473,81 @@ async def get_async_task_result(task_id: str):
             }
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"작업을 찾을 수 없습니다: {task_id}")
+
+
+# ============================================================================
+# Admin: Precache Trigger Endpoints (for Cloud Scheduler)
+# ============================================================================
+
+class PrecacheTriggerRequest(BaseModel):
+    """Precache 트리거 요청"""
+    active_only: bool = True
+    limit: Optional[int] = None
+    num_reviews: int = 50
+    api_key: str  # 보안을 위한 API 키
+
+
+@app.post("/api/admin/trigger-precache")
+async def trigger_precache(request: PrecacheTriggerRequest):
+    """
+    Precache 작업을 트리거합니다.
+    Cloud Scheduler에서 호출하도록 설계되었습니다.
+
+    보안: api_key가 환경변수 PRECACHE_API_KEY와 일치해야 합니다.
+    """
+    import os
+
+    # API 키 검증
+    expected_key = os.environ.get("PRECACHE_API_KEY", "")
+    if not expected_key or request.api_key != expected_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    # Redis 연결 확인
+    if not redis_client:
+        raise HTTPException(
+            status_code=503,
+            detail="Redis가 연결되지 않아 비동기 작업을 실행할 수 없습니다."
+        )
+
+    try:
+        from src.celery.precache import precache_all_festivals
+
+        # Celery 태스크 실행
+        task = precache_all_festivals.delay(
+            num_reviews=request.num_reviews,
+            skip_if_cached=True,
+            active_only=request.active_only,
+            limit=request.limit
+        )
+
+        return {
+            "status": "started",
+            "task_id": task.id,
+            "message": f"Precache 작업이 시작되었습니다. (active_only={request.active_only})",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Precache 시작 실패: {str(e)}")
+
+
+@app.get("/api/admin/precache-status/{task_id}")
+async def get_precache_status(task_id: str, api_key: str = Query(...)):
+    """Precache 작업 상태를 조회합니다."""
+    import os
+
+    # API 키 검증
+    expected_key = os.environ.get("PRECACHE_API_KEY", "")
+    if not expected_key or api_key != expected_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    progress = get_task_progress(task_id)
+    result = get_task_result(task_id)
+
+    if result:
+        return {"task_id": task_id, "status": "completed", "result": result}
+    elif progress:
+        return {"task_id": task_id, **progress}
+    else:
+        return {"task_id": task_id, "status": "unknown"}
 
 
 if __name__ == "__main__":

@@ -68,7 +68,7 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    command: celery -A celery_app worker --loglevel=info --pool=solo
+    command: celery -A src.celery.app worker --loglevel=info --pool=solo
     restart: unless-stopped
 
   # Celery Flower (모니터링 대시보드)
@@ -86,7 +86,7 @@ services:
     depends_on:
       - redis
       - celery-worker
-    command: celery -A celery_app flower --port=5555
+    command: celery -A src.celery.app flower --port=5555
     restart: unless-stopped
 
   # Celery Beat (스케줄러 - 자동 사전 캐싱)
@@ -110,7 +110,7 @@ services:
         condition: service_healthy
       celery-worker:
         condition: service_started
-    command: celery -A celery_app beat --loglevel=info
+    command: celery -A src.celery.app beat --loglevel=info
     restart: unless-stopped
 
 volumes:

@@ -1,7 +1,10 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/store/useAuthStore';
 
-const API_BASE_URL = 'http://localhost:8000';
+// API URL configuration for different environments
+// - Development: Uses localhost
+// - Production: Uses VITE_API_URL environment variable
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Create axios instance with auth interceptors
 export const authApi: AxiosInstance = axios.create({
