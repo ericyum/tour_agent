@@ -14,6 +14,7 @@ __pycache__/
 *.wss
 *.svg
 *.php
+*.png
 # *.gif
 *.do
 *.es
@@ -49,3 +50,15 @@ dist-ssr/
 .vscode/
 coverage/
 build/
+
+# Celery Beat schedule database
+celerybeat-schedule
+celerybeat-schedule.db
+celerybeat.pid
+
+# Basic Auth credentials
+deploy/.htpasswd
+
+# Cache files
+cache/
+*.cache
