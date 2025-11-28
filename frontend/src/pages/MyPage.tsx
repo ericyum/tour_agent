@@ -26,7 +26,9 @@ export default function MyPage() {
   const handleDeleteAccount = async () => {
     setIsDeleting(true);
     try {
-      await authService.deleteAccount();
+      // TODO: Implement deleteAccount API
+      // await authService.deleteAccount();
+      alert('계정 삭제 기능은 현재 개발 중입니다.');
       logout();
       navigate('/');
     } catch (error) {
