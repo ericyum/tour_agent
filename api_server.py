@@ -99,7 +99,11 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:5173",
-    ],  # React dev servers
+        "https://festmoment.co.kr",
+        "https://www.festmoment.co.kr",
+        "https://festmoment.onrender.com",
+        "https://festmoment-frontend.onrender.com",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
