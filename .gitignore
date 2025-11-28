@@ -34,7 +34,6 @@ lerna-debug.log*
 # Node.js
 # Attention: If you're using the `native-image` or `electron` packages, then you might need to remove `*.node` from this file.
 node_modules/
-dist/
 dist-ssr/
 *.local
 *.build
