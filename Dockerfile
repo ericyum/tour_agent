@@ -51,8 +51,8 @@ ENV PORT=8080
 # Expose port (Cloud Run uses PORT env var)
 EXPOSE 8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+# Health check - increased start-period for slow initialization
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
     CMD curl -f http://localhost:${PORT}/ || exit 1
 
 # Run with gunicorn for production
