@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 import { ThumbsUp, ThumbsDown, Activity, TrendingUp, MessageCircle, HelpCircle, CheckCircle } from 'lucide-react';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 interface AnalyticsSummary {
@@ -98,22 +99,22 @@ export default function AdminDashboard() {
       setLoading(true);
 
       // Fetch analytics summary
-      const analyticsRes = await fetch('http://localhost:8000/api/admin/analytics');
+      const analyticsRes = await fetch(`${API_BASE_URL}/api/admin/analytics`);
       const analyticsData = await analyticsRes.json();
       setAnalytics(analyticsData);
 
       // Fetch feature ratings
-      const ratingsRes = await fetch('http://localhost:8000/api/admin/feature-ratings');
+      const ratingsRes = await fetch(`${API_BASE_URL}/api/admin/feature-ratings`);
       const ratingsData = await ratingsRes.json();
       setFeatureRatings(ratingsData.feature_ratings);
 
       // Fetch feedbacks
-      const feedbacksRes = await fetch('http://localhost:8000/api/admin/feedback');
+      const feedbacksRes = await fetch(`${API_BASE_URL}/api/admin/feedback`);
       const feedbacksData = await feedbacksRes.json();
       setFeedbacks(feedbacksData.feedback);
 
       // Fetch Q&A statistics
-      const qnaRes = await fetch('http://localhost:8000/api/admin/qna');
+      const qnaRes = await fetch(`${API_BASE_URL}/api/admin/qna`);
       const qnaData = await qnaRes.json();
       setQnaStats(qnaData);
     } catch (error) {

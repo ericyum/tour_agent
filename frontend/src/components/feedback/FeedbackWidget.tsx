@@ -4,6 +4,8 @@ import { ThumbsUp, ThumbsDown, X, LogIn } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useNavigate } from 'react-router-dom';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 interface FeedbackWidgetProps {
   festivalName?: string;
 }
@@ -45,7 +47,7 @@ export const FeedbackWidget: React.FC<FeedbackWidgetProps> = ({ festivalName }) 
 
     setIsSubmitting(true);
     try {
-      const response = await fetch('http://localhost:8000/api/feedback', {
+      const response = await fetch(`${API_BASE_URL}/api/feedback`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

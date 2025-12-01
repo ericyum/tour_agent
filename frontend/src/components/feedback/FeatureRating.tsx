@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Star } from 'lucide-react';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 interface FeatureRatingProps {
   festivalName: string;
   featureName: string;
@@ -32,7 +34,7 @@ export const FeatureRating: React.FC<FeatureRatingProps> = ({
     setRating(selectedRating);
 
     try {
-      const response = await fetch('http://localhost:8000/api/feature-rating', {
+      const response = await fetch(`${API_BASE_URL}/api/feature-rating`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

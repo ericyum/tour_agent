@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const POLL_INTERVAL = 1000; // 1초마다 진행률 조회
 const STORAGE_KEY = 'festmoment_active_tasks';
 

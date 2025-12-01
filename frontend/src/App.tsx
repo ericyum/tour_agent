@@ -3,6 +3,8 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import axios from 'axios'
 import Layout from './components/layout/Layout'
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 import HomePage from './pages/HomePage'
 import SearchPage from './pages/SearchPage'
 import FestivalDetailPage from './pages/FestivalDetailPage'
@@ -42,7 +44,7 @@ function App() {
     const refreshAccessToken = async () => {
       if (isAuthenticated && refreshToken && !accessToken) {
         try {
-          const response = await axios.post('http://localhost:8000/api/auth/refresh', {
+          const response = await axios.post(`${API_BASE_URL}/api/auth/refresh`, {
             refresh_token: refreshToken,
           })
           setAccessToken(response.data.access_token)

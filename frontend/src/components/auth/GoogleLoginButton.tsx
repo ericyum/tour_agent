@@ -4,6 +4,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import axios from 'axios';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || 'your-google-client-id.apps.googleusercontent.com';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 interface GoogleLoginButtonProps {
   onError?: (error: string) => void;
@@ -38,7 +39,7 @@ export const GoogleLoginButton: React.FC<GoogleLoginButtonProps> = ({ onError })
   const handleGoogleLogin = async (response: any) => {
     try {
       // Send Google credential to backend
-      const result = await axios.post('http://localhost:8000/api/auth/google', {
+      const result = await axios.post(`${API_URL}/api/auth/google`, {
         credential: response.credential,
       });
 
